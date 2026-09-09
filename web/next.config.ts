@@ -10,8 +10,12 @@ const nextConfig: NextConfig = {
     return [
       { source: "/api/:path*", destination: `${API}/api/:path*` },
       { source: "/tiles/:path*", destination: `${API}/tiles/:path*` },
-      { source: "/wms", destination: `${API}/wms` },
-      { source: "/opendap/:path*", destination: `${API}/opendap/:path*` },
+      // OGC WMS and OPeNDAP are served by xpublish, mounted under /standards.
+      // Exposed at friendly top-level paths so the compliance claim is easy to
+      // check: /wms?service=WMS&request=GetCapabilities
+      { source: "/wms", destination: `${API}/standards/datasets/ocean/wms` },
+      { source: "/opendap:suffix", destination: `${API}/standards/datasets/ocean/opendap:suffix` },
+      { source: "/standards/:path*", destination: `${API}/standards/:path*` },
     ];
   },
 };
