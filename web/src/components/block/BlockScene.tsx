@@ -19,6 +19,8 @@ import { getCached, loadVolume, volumeKey } from "@/lib/loading/volumeStore";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
+import { openProfile } from "@/lib/api/openProfile";
+import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
 import CurrentParticles from "./CurrentParticles";
@@ -191,24 +193,33 @@ function Instruments({
   const setMatchup = useSessionStore((s) => s.setMatchup);
   const setLoadingProfile = useSessionStore((s) => s.setLoadingProfile);
   const variable = useSessionStore((s) => s.variable);
+  const time = useSessionStore(currentTime);
+
+  // Same time window as the map, from the same module, so the two views can
+  // never show a different set of instruments for the same timestep.
+  const times = useSessionStore((s) => s.times);
+  const shown = useMemo(
+    () => inTimeWindow(observations, time, windowDaysFor(times)),
+    [observations, time, times],
+  );
 
   const inBox = useMemo(
     () =>
-      observations.filter((f) => {
+      shown.filter((f) => {
         const [lon, lat] = f.geometry.coordinates;
         return (
           f.properties.platform !== "glider" &&
           lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]
         );
       }),
-    [observations, bbox],
+    [shown, bbox],
   );
 
   // Gliders are drawn by GliderTracks: they fly a sawtooth, so a drifting
   // capsule at a single parking depth would misrepresent them.
   const gliders = useMemo(
     () =>
-      observations.filter((f) => {
+      shown.filter((f) => {
         const [lon, lat] = f.geometry.coordinates;
         return (
           f.properties.platform === "glider" &&
@@ -255,6 +266,15 @@ function Instruments({
     mesh.count = inBox.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+    // Raycasting an InstancedMesh starts with a broad phase against
+    // `boundingSphere`, which three computes ONCE, lazily, and then caches
+    // forever. Move the instances afterwards -- which is exactly what this
+    // effect does on every region, timestep and exaggeration change -- and the
+    // cached sphere no longer contains them, so every ray misses and clicking a
+    // float does nothing at all. Nothing errors; the instrument is simply
+    // inert. Recompute it whenever the matrices change.
+    mesh.computeBoundingSphere();
   }, [inBox, errorById, bbox, depthRange, frame, depths]);
 
   const onClick = async (ev: { instanceId?: number; stopPropagation: () => void }) => {
@@ -262,17 +282,7 @@ function Instruments({
     const i = ev.instanceId;
     if (i === undefined || !inBox[i]) return;
     const { platform, id } = inBox[i].properties;
-    setLoadingProfile(true);
-    try {
-      const [profile, match] = await Promise.all([
-        api.profile(platform, id),
-        api.matchup({ platform, id, variable }).catch(() => null),
-      ]);
-      setSelectedProfile(profile);
-      setMatchup(match);
-    } finally {
-      setLoadingProfile(false);
-    }
+    await openProfile(platform, id);
   };
 
   const floats = inBox.length ? (
@@ -283,7 +293,11 @@ function Instruments({
       onPointerOver={() => (document.body.style.cursor = "pointer")}
       onPointerOut={() => (document.body.style.cursor = "")}
     >
-      <capsuleGeometry args={[0.018, 0.05, 4, 8]} />
+      {/* Big enough to hit. With a synthetic catalog there were thirty floats
+          and something was always under the cursor; a real month in one region
+          can put a single instrument in the block, and a 10px target that must
+          be found by eye is not a control. */}
+      <capsuleGeometry args={[0.03, 0.075, 4, 8]} />
       <meshStandardMaterial roughness={0.4} metalness={0.3} />
     </instancedMesh>
   ) : null;

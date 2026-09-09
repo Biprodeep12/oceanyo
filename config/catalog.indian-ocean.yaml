@@ -1,0 +1,77 @@
+# REAL data over the WHOLE Indian Ocean, with a year of monthly steps.
+#
+#   OCEANUPS_CATALOG=config/catalog.indian-ocean.yaml npm run dev
+#
+# The other real catalog, `catalog.hycom.yaml`, is one month of the Bay of
+# Bengal at 1/12 degree every three days. This one is the opposite trade and
+# both are worth having:
+#
+#                        catalog.hycom.yaml        catalog.indian-ocean.yaml
+#   region               80-95E, 5-22N             30-120E, 30S-30N
+#   resolution           1/12 deg (0.08)           ~0.24 deg lat, 0.48 lon
+#   depth                40 levels to 5000 m       36 levels to 2000 m
+#   time                 10 steps, 3-daily         12 steps, MONTHLY
+#   span                 January 2024              Jul 2023 - Jun 2024
+#
+# Use the Bay of Bengal one to show eddies and a real high-resolution water
+# column; use this one to show the Indian EEZ, the Arabian Sea and a full
+# seasonal cycle -- including the monsoon reversal in the surface currents,
+# which is the single most recognisable thing in this ocean and simply is not
+# visible in one month of one basin.
+#
+# ---------------------------------------------------------------------------
+# What a MONTHLY model changed
+# ---------------------------------------------------------------------------
+#
+# The matchup window was a fixed 24 hours, which quietly assumes a daily model.
+# Against monthly means the nearest step can be a fortnight from the profile,
+# so every colocation was rejected and the panel reported "no matchup" for data
+# that matches perfectly well. The default is now half the model's OWN timestep
+# spacing, read from the file -- correct for daily, 3-daily and monthly without
+# anyone picking a number. `?window=` still overrides it.
+#
+# Note the variables here ARE named `thetao`/`so`/`uo`/`vo`: these files were
+# written by a tool that renamed them. That means this catalog does NOT
+# exercise CF name resolution -- `catalog.hycom.yaml` does, against HYCOM's own
+# `water_temp`. Keep both if you want that claim tested.
+# ---------------------------------------------------------------------------
+
+id: bob-hycom-io
+source: "HYCOM GOFS 3.1 GLBy0.08 monthly, Indian Ocean (US Naval Research Laboratory, public domain)"
+synthetic: false
+
+model:
+  uri: data/real/hycom_indian_ocean.nc
+  variables: {}
+
+bgc:
+  # Satellite chlorophyll covers only the Bay of Bengal box, so outside it the
+  # chlorophyll layer is empty. That is honest: it is a different product on a
+  # different grid, which is exactly why the spec insists it gets its own.
+  uri: data/real/chl_2024-01-01_2024-01-30.nc
+  variables:
+    chlorophyll: chlor_a
+
+bathymetry:
+  # 2 arc-minute across the whole basin; the Bay of Bengal catalog keeps
+  # the 30 arc-second file, which is 16x finer over 1/24 of the area.
+  uri: data/real/etopo2022_120s_io.nc
+  variable: z
+
+climatology:
+  # Rebuilt from the same cached WOA23 sources over the basin.
+  uri: data/real/climatology_woa23_io.nc
+
+observations:
+  - platform: argo
+    parser: argo_netcdf
+    uri: data/real/argo
+  - platform: glider
+    parser: glider_ego
+    uri: data/real/glider
+
+defaults:
+  # The Indian EEZ, which is what the problem statement actually asks for.
+  bbox: [30, -30, 120, 30]
+  depth_range: [0, 2000]
+  variable: temperature

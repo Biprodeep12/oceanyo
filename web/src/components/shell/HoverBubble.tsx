@@ -9,9 +9,12 @@
 
 import { usePointer } from "@/state/usePointer";
 import { IconRaindrop } from "@/components/ui/icons";
+import { useSessionStore } from "@/state/useSessionStore";
 
 export default function HoverBubble() {
   const { x, y, value, units, label, visible } = usePointer();
+  // Hardcoded, this read "(synthetic)" over genuine HYCOM values.
+  const synthetic = useSessionStore((s) => s.health?.synthetic ?? true);
 
   if (!visible) return null;
 
@@ -38,7 +41,9 @@ export default function HoverBubble() {
           </div>
           <div className="whitespace-nowrap font-mono text-[12px] text-[color:var(--ze-text-dim)]">
             {value === null ? "no data" : `${value.toFixed(2)} ${units}`}
-            <span className="ml-1 text-[color:var(--ze-text-faint)]">(synthetic)</span>
+            {synthetic && (
+              <span className="ml-1 text-[color:var(--ze-text-faint)]">(synthetic)</span>
+            )}
           </div>
         </div>
         {/* Tail, drawn on whichever side the bubble is anchored. */}

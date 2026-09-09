@@ -212,6 +212,23 @@ class CFDataset:
         idx = int(np.argmin(np.abs(times.values - np.datetime64(target))))
         return times[idx]
 
+    def step_hours(self) -> float | None:
+        """Median spacing between timesteps, in hours.
+
+        Callers that colocate in time need this: a 24 h window is right for a
+        daily model and rejects every observation against a monthly one, where
+        the nearest step can legitimately be a fortnight away.
+        """
+        t = self.times
+        if t is None or len(t) < 2:
+            return None
+        vals = pd.to_datetime(t).values.astype("datetime64[s]").astype("int64")
+        gaps = np.diff(np.sort(vals))
+        gaps = gaps[gaps > 0]
+        if gaps.size == 0:
+            return None
+        return float(np.median(gaps)) / 3600.0
+
     def bbox(self) -> BBox:
         return BBox(
             float(self.lons.min()),

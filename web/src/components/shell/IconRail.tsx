@@ -157,17 +157,35 @@ export default function IconRail() {
           {open === "info" && (
             <Popover title="About this data" onClose={() => setOpen(null)}>
               <div className="space-y-2.5 px-4 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
-                <p className="text-[color:var(--ze-warn)]">
-                  Every field shown is <b>synthetically generated</b>, not a
-                  reanalysis and not an observation. It is CF-1.8 compliant and
-                  GLORYS12V1-shaped so the real-data path is a config change.
-                </p>
-                <p>
-                  Observations are the model field sampled at each instrument
-                  position and time, plus a known injected bias. The
-                  model&ndash;observation panel recovers that bias, which is the
-                  end-to-end test of the whole chain.
-                </p>
+                {health?.synthetic === false ? (
+                  <>
+                    <p className="text-[color:var(--ze-text)]">
+                      Every field shown is <b>real</b>. The model is{" "}
+                      {health?.source ?? "a real analysis"}; observations are
+                      genuine Argo and glider profiles from the Ifremer GDACs.
+                    </p>
+                    <p>
+                      The model and the instruments are independent, so the
+                      model&ndash;observation panel is a real validation rather
+                      than a self-check: nothing here was generated to agree.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[color:var(--ze-warn)]">
+                      Every field shown is <b>synthetically generated</b>, not a
+                      reanalysis and not an observation. It is CF-1.8 compliant
+                      and GLORYS12V1-shaped so the real-data path is a config
+                      change.
+                    </p>
+                    <p>
+                      Observations are the model field sampled at each instrument
+                      position and time, plus a known injected bias. The
+                      model&ndash;observation panel recovers that bias, which is
+                      the end-to-end test of the whole chain.
+                    </p>
+                  </>
+                )}
                 <p>
                   <b className="text-[color:var(--ze-text)]">This is not a warning
                   system.</b>{" "}

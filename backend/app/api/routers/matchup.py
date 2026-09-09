@@ -12,13 +12,36 @@ from ..services.matchup import QC_DISPLAY, QC_QUANTITATIVE, compute_matchup, sum
 router = APIRouter(prefix="/api", tags=["matchup"])
 
 
+
+def _default_window(cfd, requested: float | None) -> float:
+    """Colocation window: what the caller asked for, else half a model step.
+
+    A fixed 24 h default silently assumes a daily model. Point the same code at
+    monthly means -- which is what a year-long Indian Ocean subset is -- and the
+    nearest step is up to fifteen days from the profile, so every matchup is
+    rejected and the panel reports "no matchup" for data that matches perfectly
+    well. Half the model's own spacing is the widest window in which the nearest
+    step is genuinely the closest one, and it is correct for daily, 3-daily and
+    monthly alike without anyone choosing a number.
+    """
+    if requested is not None:
+        return requested
+    step = cfd.step_hours()
+    if step is None:
+        return 24.0
+    return max(24.0, step / 2.0)
+
+
 @router.get("/matchup", response_model=MatchupResult)
 def matchup(
     platform: str = Query(...),
     id: str = Query(..., description="profile id"),
     var: str = Query("temperature"),
     radius: float = Query(25.0, gt=0, le=500, description="colocation radius in km"),
-    window: float = Query(24.0, gt=0, le=720, description="time window in hours"),
+    window: float | None = Query(
+        None, gt=0, le=8760,
+        description="time window in hours; default = half the model timestep",
+    ),
     qc: str = Query("strict", pattern="^(strict|display)$"),
     store: DataStore = Depends(get_store),
 ) -> MatchupResult:
@@ -36,7 +59,7 @@ def matchup(
     try:
         return compute_matchup(
             cfd, profile, variable=var,
-            radius_km=radius, window_hours=window, qc_flags=flags,
+            radius_km=radius, window_hours=_default_window(cfd, window), qc_flags=flags,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -48,7 +71,7 @@ def matchup_summary(
     platform: str | None = Query(None),
     var: str = Query("temperature"),
     radius: float = Query(25.0, gt=0, le=500),
-    window: float = Query(24.0, gt=0, le=720),
+    window: float | None = Query(None, gt=0, le=8760),
     limit: int = Query(120, ge=1, le=1000),
     store: DataStore = Depends(get_store),
 ):
@@ -76,7 +99,10 @@ def matchup_summary(
         except Exception:
             continue
 
-    rows = summarize(cfd, profiles, variable=var, radius_km=radius, window_hours=window)
+    rows = summarize(
+        cfd, profiles, variable=var, radius_km=radius,
+        window_hours=_default_window(cfd, window),
+    )
     scored = [r for r in rows if r["rmse"] is not None]
     return {
         "variable": var,

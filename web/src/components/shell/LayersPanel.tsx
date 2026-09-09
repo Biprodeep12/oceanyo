@@ -10,7 +10,7 @@
 // to the one audience most able to check it, so the groups are named for what
 // they actually are: observations, and model fields.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { MenuRow, SectionLabel, Slider } from "@/components/ui";
 import {
@@ -27,9 +27,10 @@ import {
   IconThermometer,
   IconVolume,
 } from "@/components/ui/icons";
+import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
 import { shortLabel } from "@/lib/variableLabels";
 import { useIsMobile } from "@/state/useMediaQuery";
-import { currentVariable, useSessionStore } from "@/state/useSessionStore";
+import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 
 function variableIcon(key: string) {
   if (key === "temperature") return <IconThermometer />;
@@ -45,6 +46,12 @@ export default function LayersPanel() {
   const varMeta = useSessionStore(currentVariable);
 
   const climatologyAvailable = (s.health?.climatology ?? []).includes(s.variable);
+  const now = currentTime(s);
+  const windowDays = windowDaysFor(s.times);
+  const shownCount = useMemo(
+    () => inTimeWindow(s.observations, now, windowDays).length,
+    [s.observations, now, windowDays],
+  );
   const inBlock = s.phase === "block";
   const depthMax = varMeta?.depthRange[1] ?? 2000;
 
@@ -97,6 +104,15 @@ export default function LayersPanel() {
             onChange={() => s.toggle("showObservations")}
             title="Argo floats and gliders, coloured by model-observation error"
           />
+          {/* Say how many are drawn and why, or a filtered map reads as a
+              broken one -- especially against a real catalog, where most
+              profiles are years away from the displayed step. */}
+          {s.showObservations && s.observations.length > 0 && (
+            <div className="px-4 pb-1 pt-0.5 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
+              {shownCount} of {s.observations.length} within {Math.round(windowDays)} days
+              of this step
+            </div>
+          )}
 
           <SectionLabel>Model fields</SectionLabel>
           {s.variables.map((v) => (

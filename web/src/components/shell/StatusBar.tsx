@@ -19,6 +19,14 @@ export default function StatusBar() {
   const { lat, lon, visible } = usePointer();
 
   const synthetic = health?.synthetic ?? true;
+  // The attribution line used to read "SYNTHETIC" unconditionally. Pointed at
+  // the real catalog it therefore labelled genuine HYCOM output as synthetic --
+  // the provenance claim failing in the direction nobody checks for, because
+  // over-disclosure looks like caution rather than a bug. It is driven by the
+  // same `synthetic` flag as the chip.
+  const provenance = synthetic
+    ? "SYNTHETIC"
+    : (health?.source ?? "").split(" (")[0].slice(0, 34) || "REAL DATA";
   const standards = [
     "CF-1.8",
     health?.standards?.wms ? "WMS" : null,
@@ -39,7 +47,8 @@ export default function StatusBar() {
       {/* attribution */}
       <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-20 hidden -translate-x-1/2 md:block">
         <span className="ze-overlay-text">
-          &copy; oceanUps &middot; OpenStreetMap &middot; SYNTHETIC{" "}
+          &copy; oceanUps &middot; OpenStreetMap &middot;{" "}
+          <span title={health?.source ?? ""}>{provenance}</span>{" "}
           {time ? time.slice(0, 10) : ""}
         </span>
       </div>

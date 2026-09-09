@@ -25,6 +25,8 @@ import { cachedGrid, loadGrid, probeKey, sampleGrid } from "@/lib/loading/fieldP
 import { shortLabel } from "@/lib/variableLabels";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { usePointer } from "@/state/usePointer";
+import { openProfile } from "@/lib/api/openProfile";
+import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
 
@@ -48,22 +50,44 @@ const SEL_SOURCE = "selection";
 // arrives the ocean data is unaffected.
 const BASE_STYLE: maplibregl.StyleSpecification = {
   version: 8,
-  sources: {},
+  sources: {
+    // Natural Earth II, public domain, served from our own /public. Zoom 0-4;
+    // MapLibre overzooms past that, which is fine for context.
+    basemap: {
+      type: "raster",
+      tiles: ["/basemap/{z}/{x}/{y}.jpg"],
+      tileSize: 256,
+      minzoom: 0,
+      maxzoom: 4,
+      attribution: "Land: Natural Earth II (public domain)",
+    },
+  },
   layers: [
     {
       id: "background",
       type: "background",
       paint: { "background-color": "#0a1a26" },
     },
+    {
+      id: "basemap",
+      type: "raster",
+      source: "basemap",
+      // Dimmed and desaturated: this is context, not the subject. At full
+      // strength it competes with the field for attention and the colour scale
+      // stops being readable against it.
+      paint: { "raster-opacity": 0.42, "raster-saturation": -0.55, "raster-brightness-max": 0.8 },
+    },
   ],
 };
 
-// Deliberately NO remote basemap source. Adding one leaves the style
-// permanently in "not loaded" state if the remote stalls, and MapLibre then
-// refuses to render ANY vector layer -- the selection rectangle and the
-// observation markers silently disappear while raster tiles keep working.
-// Geographic context comes from a locally generated graticule instead, so the
-// map has zero network dependencies beyond our own API.
+// Still NO REMOTE basemap. A remote source leaves the style permanently in
+// "not loaded" state if it stalls, and MapLibre then refuses to render ANY
+// vector layer -- the selection rectangle and the observation markers silently
+// disappear while raster tiles keep working. These tiles are bundled in
+// web/public, so the map has zero network dependencies beyond our own origin,
+// and they answer the first question anyone asks of a regional subset: what is
+// the empty part? Without them the ocean outside the domain is an unexplained
+// void that reads as a broken renderer rather than as "no data here".
 function graticule(step = 5): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   for (let lon = -180; lon <= 180; lon += step) {
@@ -138,6 +162,8 @@ export default function MapView({ visible }: { visible: boolean }) {
   // markers and the selection rectangle permanently invisible.
   const [ready, setReady] = useState(false);
 
+  const domain = useSessionStore((s) => s.domain);
+  const times = useSessionStore((s) => s.times);
   const variable = useSessionStore((s) => s.variable);
   const depth = useSessionStore((s) => s.depth);
   const selection = useSessionStore((s) => s.selection);
@@ -206,7 +232,12 @@ export default function MapView({ visible }: { visible: boolean }) {
         type: "raster",
         tiles: [tileTemplate(variable, time ?? "latest", depth, display)],
         tileSize: 256,
-        attribution: "SYNTHETIC data - not a reanalysis",
+        // Read at source-creation time from whatever catalog is loaded; a
+        // hardcoded string here mislabels real data.
+        attribution:
+          useSessionStore.getState().health?.synthetic === false
+            ? (useSessionStore.getState().health?.source ?? "model field")
+            : "SYNTHETIC data - not a reanalysis",
       });
       m.addLayer({
         id: FIELD_LAYER,
@@ -356,6 +387,105 @@ export default function MapView({ visible }: { visible: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- frame the map to the data, once the catalog says how big it is ---
+  //
+  // The opening view was a hardcoded centre and zoom, tuned by eye on one
+  // laptop. Zoom is independent of viewport WIDTH, so the same 4.6 that filled
+  // a 1440px window leaves the same data as a small tile in the middle of a
+  // 1920px one -- and because this platform draws no basemap beyond its own
+  // subset (deliberately: nothing to stall on a third-party tile server during
+  // a demo), everything around it is empty. It reads as a broken map rather
+  // than as a regional dataset. Fitting to the catalog's own extent is right on
+  // any screen, and right for any region a future catalog covers.
+  // Stay framed to the data until the user takes the wheel.
+  //
+  // A one-shot fit is not enough. fitBounds derives zoom from the container's
+  // size AT THAT MOMENT, and MapLibre then holds zoom rather than extent -- so
+  // if the container is still settling (or the window is later resized, or a
+  // panel opens) the data shrinks back into a corner of a big empty map, which
+  // is the symptom this exists to cure. Re-fitting on every resize until the
+  // first real drag or zoom keeps it right on any screen without ever fighting
+  // someone who has started exploring.
+  const userMoved = useRef(false);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready || !domain) return;
+
+    const fit = () => {
+      if (userMoved.current) return;
+      const el = m.getContainer();
+      if (el.clientWidth < 100 || el.clientHeight < 100) return;
+      const [w, s0, e, n] = domain;
+      m.fitBounds(
+        [
+          [w, s0],
+          [e, n],
+        ],
+        { padding: 48, duration: 0 },
+      );
+    };
+
+    // Only a gesture counts as taking control; fitBounds itself fires these
+    // events with no originalEvent, and treating that as user intent would
+    // disarm the framing on its very first call.
+    const claim = (ev: { originalEvent?: unknown }) => {
+      if (ev?.originalEvent) userMoved.current = true;
+    };
+
+    m.on("dragstart", claim);
+    m.on("zoomstart", claim);
+    m.on("rotatestart", claim);
+    m.on("resize", fit);
+
+    // A ResizeObserver on the CONTAINER, not just MapLibre's own resize event.
+    // MapLibre only tracks the WINDOW, so a container that settles during
+    // layout -- fonts loading, a panel measuring itself, the flex row settling
+    // -- never fires it. That is the common case on a first paint, and it is
+    // why the one-shot fit kept leaving the data small in a large window while
+    // resizing the window by hand appeared to "fix" it.
+    const ro = new ResizeObserver(() => {
+      m.resize();
+      fit();
+    });
+    ro.observe(m.getContainer());
+
+    const id = requestAnimationFrame(fit);
+    return () => {
+      cancelAnimationFrame(id);
+      ro.disconnect();
+      m.off("dragstart", claim);
+      m.off("zoomstart", claim);
+      m.off("rotatestart", claim);
+      m.off("resize", fit);
+    };
+  }, [ready, domain]);
+
+  // --- click an instrument on the MAP, not only in the block ---
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const onPick = (ev: maplibregl.MapLayerMouseEvent) => {
+      if (useSessionStore.getState().drawMode) return;
+      const f = ev.features?.[0];
+      if (!f) return;
+      const { platform, id } = f.properties as { platform: string; id: string };
+      // Stop the region-draw and pointer-readout handlers treating this as a
+      // click on the sea surface.
+      ev.preventDefault?.();
+      void openProfile(platform, id);
+    };
+    const enter = () => (m.getCanvas().style.cursor = "pointer");
+    const leave = () => (m.getCanvas().style.cursor = "");
+    m.on("click", "obs-circles", onPick);
+    m.on("mouseenter", "obs-circles", enter);
+    m.on("mouseleave", "obs-circles", leave);
+    return () => {
+      m.off("click", "obs-circles", onPick);
+      m.off("mouseenter", "obs-circles", enter);
+      m.off("mouseleave", "obs-circles", leave);
+    };
+  }, [ready]);
+
   // --- coastline, fetched once ---
   useEffect(() => {
     const m = map.current;
@@ -412,12 +542,13 @@ export default function MapView({ visible }: { visible: boolean }) {
     if (!src) return;
     src.setData({
       type: "FeatureCollection",
-      features: observations.map((f) => ({
+      // Only the instruments contemporaneous with the timestep on screen.
+      features: inTimeWindow(observations, time, windowDaysFor(times)).map((f) => ({
         ...f,
         properties: { ...f.properties, err: errorById[f.properties.id] ?? -1 },
       })),
     } as GeoJSON.FeatureCollection);
-  }, [observations, errorById, ready, showObservations]);
+  }, [observations, errorById, ready, showObservations, time, times]);
 
   // --- selection rectangle ---
   useEffect(() => {
@@ -469,7 +600,20 @@ export default function MapView({ visible }: { visible: boolean }) {
     const handlers = {
       zoomIn: () => m.zoomIn({ duration: 220 }),
       zoomOut: () => m.zoomOut({ duration: 220 }),
-      reset: () => m.easeTo({ center: [88, 14] as [number, number], zoom: 4.6, duration: 500 }),
+      reset: () => {
+        const d = useSessionStore.getState().domain;
+        if (d) {
+          m.fitBounds(
+            [
+              [d[0], d[1]],
+              [d[2], d[3]],
+            ],
+            { padding: 48, duration: 500 },
+          );
+        } else {
+          m.easeTo({ center: [88, 14] as [number, number], zoom: 4.6, duration: 500 });
+        }
+      },
     };
     registerViewport(handlers);
     return () => releaseViewport(handlers);

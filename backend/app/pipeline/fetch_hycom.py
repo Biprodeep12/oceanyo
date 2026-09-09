@@ -193,6 +193,17 @@ def fetch_hycom(
         )
 
     chunk_days = step_days * chunk_steps
+    # Compact, stable, readable: W80E95S5N22 at 1/12, plus the stride and the
+    # sampling interval when they are not the default.
+    def _d(v: float, pos: str, neg: str) -> str:
+        return f"{pos if v >= 0 else neg}{abs(v):g}"
+
+    tag = (
+        f"{_d(west, 'E', 'W')}{_d(east, 'E', 'W')}"
+        f"{_d(south, 'N', 'S')}{_d(north, 'N', 'S')}"
+        f"h{horiz_stride}d{step_days}"
+    )
+
     out: dict[str, list[Path]] = {}
     for group in groups or tuple(GROUPS):
         paths: list[Path] = []
@@ -200,7 +211,12 @@ def fetch_hycom(
             n = min(chunk_days, days - offset)
             c0 = d0 + dt.timedelta(days=offset)
             c1 = c0 + dt.timedelta(days=n - 1)
-            dest = outdir / f"{group}_{c0.isoformat()}_{c1.isoformat()}.nc"
+            # The cache key must carry the REGION, not just the dates.
+            # Keyed on dates alone, re-running with a different bbox silently
+            # reuses the chunks already on disk and builds a file whose name
+            # and attributes claim one region while the arrays hold another --
+            # the worst kind of wrong, because nothing errors.
+            dest = outdir / f"{group}_{tag}_{c0.isoformat()}_{c1.isoformat()}.nc"
             if dest.exists() and dest.stat().st_size > 0:
                 log.info("    %s  cached", dest.name)
                 paths.append(dest)

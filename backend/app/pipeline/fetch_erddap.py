@@ -132,7 +132,10 @@ def fetch_bathymetry(
     """ETOPO 2022 elevation over the bbox. stride=2 gives 30 arc-second."""
     outdir.mkdir(parents=True, exist_ok=True)
     west, south, east, north = bbox
-    dest = outdir / f"etopo2022_{stride*15}s_bob.nc"
+    # Region in the name, not a hardcoded "bob": otherwise a second bbox
+    # silently reuses the first one's file.
+    tag = f"{west:g}E{east:g}E{south:g}N{north:g}N".replace("-", "S")
+    dest = outdir / f"etopo2022_{stride*15}s_{tag}.nc"
     if dest.exists() and dest.stat().st_size > 0:
         log.info("    %s  cached", dest.name)
         return dest
