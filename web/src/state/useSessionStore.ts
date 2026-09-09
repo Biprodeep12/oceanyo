@@ -59,6 +59,14 @@ export interface SessionState {
   showParticles: boolean;
   showIsosurface: boolean;
   isoLevel: number;
+  /** Climatology anomaly overlay in map mode. */
+  showAnomaly: boolean;
+  /** Colour saturation of the anomaly layer, in standard deviations. */
+  anomalyLimit: number;
+  /** Vertical cross-section curtain in block mode. */
+  showSection: boolean;
+  /** The two [lon, lat] endpoints; a section needs both. */
+  sectionPoints: [number, number][];
   opacity: number;
   /** Colour range override per variable; absent = the variable's own range. */
   colorRange: Record<string, [number, number]>;
@@ -90,11 +98,21 @@ export interface SessionState {
   setExaggeration: (v: number) => void;
   setOpacity: (v: number) => void;
   setIsoLevel: (v: number) => void;
+  setAnomalyLimit: (v: number) => void;
+  addSectionPoint: (lon: number, lat: number) => void;
+  clearSection: () => void;
   setColorRange: (variable: string, range: [number, number] | null) => void;
   setLogScale: (variable: string, log: boolean | null) => void;
   setColormap: (variable: string, cmap: string | null) => void;
   toggle: (
-    key: "showVolume" | "showSlice" | "showParticles" | "showIsosurface" | "playing",
+    key:
+      | "showVolume"
+      | "showSlice"
+      | "showParticles"
+      | "showIsosurface"
+      | "showAnomaly"
+      | "showSection"
+      | "playing",
   ) => void;
   setObservations: (f: ObservationFeature[]) => void;
   setErrorById: (m: Record<string, number>) => void;
@@ -127,6 +145,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   showParticles: true,
   showIsosurface: false,
   isoLevel: 20,
+  showAnomaly: false,
+  anomalyLimit: 3,
+  showSection: false,
+  sectionPoints: [],
   opacity: 0.85,
   colorRange: {},
   logScale: {},
@@ -154,6 +176,16 @@ export const useSessionStore = create<SessionState>((set) => ({
   setExaggeration: (exaggeration) => set({ exaggeration }),
   setOpacity: (opacity) => set({ opacity }),
   setIsoLevel: (isoLevel) => set({ isoLevel }),
+  setAnomalyLimit: (anomalyLimit) => set({ anomalyLimit }),
+
+  // A third click starts a new section rather than doing nothing: picking is
+  // the fiddly part of a transect tool, and re-picking must not need a reset.
+  addSectionPoint: (lon, lat) =>
+    set((st) => ({
+      sectionPoints:
+        st.sectionPoints.length >= 2 ? [[lon, lat]] : [...st.sectionPoints, [lon, lat]],
+    })),
+  clearSection: () => set({ sectionPoints: [] }),
 
   setColorRange: (variable, range) =>
     set((st) => {
@@ -194,6 +226,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       selectedProfile: null,
       matchup: null,
       playing: false,
+      sectionPoints: [],
+      showSection: false,
     }),
 }));
 

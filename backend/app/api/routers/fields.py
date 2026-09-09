@@ -13,6 +13,7 @@ from ..deps import FieldQuery, field_query
 from ..services import raster, volume
 from ..services.anomaly import compute_anomaly
 from ..services.isosurface import extract_isosurface
+from ..services.section import extract_section, section_array
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["fields"])
@@ -138,6 +139,8 @@ def timestep(
 @router.get("/isosurface")
 def isosurface(
     level: float = Query(..., description="iso value in the variable's units"),
+    res: str = Query("full", pattern="^(coarse|full)$",
+                     description="match the /volume resolution this surface is drawn inside"),
     q: FieldQuery = Depends(field_query),
     store: DataStore = Depends(get_store),
 ) -> Response:
@@ -147,6 +150,7 @@ def isosurface(
         glb = extract_isosurface(
             cfd, variable=q.variable, level=level, time=q.time,
             bbox=q.bbox, depth_range=q.depth_range,
+            max_shape=volume.RESOLUTIONS[res],
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -155,7 +159,7 @@ def isosurface(
         content=glb,
         media_type="model/gltf-binary",
         headers={"Cache-Control": "public, max-age=3600",
-                 "ETag": f'W/"{q.cache_key("iso", level)}"'},
+                 "ETag": f'W/"{q.cache_key("iso", level, res)}"'},
     )
 
 
@@ -176,3 +180,74 @@ def anomaly(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _point(raw: str, name: str) -> tuple[float, float]:
+    try:
+        lon, lat = (float(v) for v in raw.split(","))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"{name} must be 'lon,lat'; got {raw!r}"
+        ) from exc
+    return lon, lat
+
+
+@router.get("/section")
+def section(
+    p0: str = Query(..., description="lon,lat of the first endpoint"),
+    p1: str = Query(..., description="lon,lat of the second endpoint"),
+    samples: int = Query(192, ge=8, le=512, description="points along the track"),
+    maxLevels: int | None = Query(None, ge=2, le=200),
+    fmt: str = Query("json", pattern="^(json|png)$"),
+    vmin: float | None = Query(None),
+    vmax: float | None = Query(None),
+    log: bool | None = Query(None),
+    cmap: str | None = Query(None),
+    q: FieldQuery = Depends(field_query),
+    store: DataStore = Depends(get_store),
+):
+    """Vertical cross-section between two points.
+
+    `fmt=png` returns the section as an image whose rows are the model's own
+    depth levels, shallowest first. That is what the 3D curtain samples: the
+    client places each level by index, so the image and the geometry share a
+    vertical axis and no resampling to even depth spacing is needed anywhere.
+    """
+    cfd = store.dataset_for(q.variable)
+    a, b = _point(p0, "p0"), _point(p1, "p1")
+
+    if fmt == "png":
+        cv = CANONICAL[q.variable]
+        try:
+            values, _ = section_array(
+                cfd, variable=q.variable, p0=a, p1=b, time=q.time,
+                depth_range=q.depth_range, samples=samples, max_levels=maxLevels,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        png = raster.colormap_png(
+            values,
+            vmin=cv.valid[0] if vmin is None else vmin,
+            vmax=cv.valid[1] if vmax is None else vmax,
+            cmap=cmap or cv.cmap,
+            log=cv.log if log is None else log,
+            # Row 0 is the shallowest level and must stay the TOP image row.
+            flip_y=False,
+        )
+        return Response(
+            content=png,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "ETag": f'W/"{q.cache_key("sec", p0, p1, samples)}"',
+            },
+        )
+
+    try:
+        return extract_section(
+            cfd, variable=q.variable, p0=a, p1=b, time=q.time,
+            depth_range=q.depth_range, samples=samples, max_levels=maxLevels,
+            bathymetry=store.bathymetry,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

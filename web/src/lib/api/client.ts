@@ -15,6 +15,7 @@ import type {
   ObservationProfile,
   ParserCapabilities,
   RegionPreset,
+  SectionResponse,
   VariableSummary,
 } from "./types";
 
@@ -33,6 +34,26 @@ async function getJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
     throw new Error(`${res.status} ${url.split("?")[0]}: ${detail}`);
   }
   return res.json() as Promise<T>;
+}
+
+function sectionQuery(opts: {
+  variable: string;
+  p0: [number, number];
+  p1: [number, number];
+  depthRange: [number, number];
+  time?: string;
+  samples?: number;
+}): string {
+  const pt = (p: [number, number]) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`;
+  const q = new URLSearchParams({
+    var: opts.variable,
+    p0: pt(opts.p0),
+    p1: pt(opts.p1),
+    depthRange: opts.depthRange.join(","),
+    samples: String(opts.samples ?? 192),
+  });
+  if (opts.time) q.set("time", opts.time);
+  return `/api/section?${q}`;
 }
 
 export const api = {
@@ -145,6 +166,9 @@ export const api = {
     depthRange: [number, number];
     level: number;
     time?: string;
+    // Must match the volume LOD on screen: both are positioned by normalized
+    // level index, so a different depth decimation shifts the surface.
+    res?: "coarse" | "full";
   }) => {
     const p = new URLSearchParams({
       var: opts.variable,
@@ -153,7 +177,45 @@ export const api = {
       level: String(opts.level),
     });
     if (opts.time) p.set("time", opts.time);
+    if (opts.res) p.set("res", opts.res);
     return `/api/isosurface?${p}`;
+  },
+
+  section: (
+    opts: {
+      variable: string;
+      p0: [number, number];
+      p1: [number, number];
+      depthRange: [number, number];
+      time?: string;
+      samples?: number;
+    },
+    signal?: AbortSignal,
+  ) => getJSON<SectionResponse>(sectionQuery(opts), signal),
+
+  sectionPngUrl: (opts: {
+    variable: string;
+    p0: [number, number];
+    p1: [number, number];
+    depthRange: [number, number];
+    time?: string;
+    samples?: number;
+    display?: { range?: [number, number]; log?: boolean; colormap?: string };
+  }) => {
+    let url = `${sectionQuery(opts)}&fmt=png`;
+    const d = opts.display;
+    if (d) {
+      const p = new URLSearchParams();
+      if (d.range) {
+        p.set("vmin", String(d.range[0]));
+        p.set("vmax", String(d.range[1]));
+      }
+      if (d.log !== undefined) p.set("log", String(d.log));
+      if (d.colormap) p.set("cmap", d.colormap);
+      const qs = p.toString();
+      if (qs) url += `&${qs}`;
+    }
+    return url;
   },
 
   volumeUrl: (opts: {
@@ -172,6 +234,22 @@ export const api = {
     if (opts.time) p.set("time", opts.time);
     return `/api/volume?${p}`;
   },
+
+  /**
+   * Anomaly-vs-climatology tiles.
+   *
+   * A separate template from `tileUrl`, not a flag: the anomaly is drawn with
+   * a diverging colormap on a symmetric range so the SIGN is readable, which
+   * the variable's own sequential colormap and range cannot express.
+   */
+  anomalyTileUrl: (
+    variable: string,
+    time: string,
+    depth: number,
+    limit = 3,
+  ) =>
+    `/tiles/anomaly/${variable}/${encodeURIComponent(time || "latest")}/${depth}` +
+    `/{z}/{x}/{y}.png?limit=${limit}`,
 
   tileUrl: (
     variable: string,

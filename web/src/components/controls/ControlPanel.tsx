@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ColorbarEditor from "./ColorbarEditor";
+import { cssGradient } from "@/lib/color/colormaps";
 import { probeGpu, type GpuCaps } from "@/three/caps";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 
@@ -69,6 +70,9 @@ export default function ControlPanel() {
   }, [s.playing, s.times.length]);
 
   const depthMax = varMeta?.depthRange[1] ?? 2000;
+  // Only offer the anomaly where the catalog actually carries a climatology
+  // for this variable -- otherwise the toggle promises a layer that 404s.
+  const climatologyAvailable = (s.health?.climatology ?? []).includes(s.variable);
 
   return (
     <div className="pointer-events-auto w-[236px] overflow-hidden rounded-lg border border-slate-700/60 bg-slate-900/90 backdrop-blur">
@@ -128,6 +132,42 @@ export default function ControlPanel() {
         </div>
       </Section>
 
+
+      {climatologyAvailable && s.phase !== "block" && (
+        <Section title="Anomaly vs climatology">
+          <Toggle
+            checked={s.showAnomaly}
+            onChange={() => s.toggle("showAnomaly")}
+            label="Show anomaly"
+          />
+          {s.showAnomaly && (
+            <div className="mt-1.5">
+              <Slider
+                label="saturate at (sigma)"
+                value={s.anomalyLimit}
+                min={1}
+                max={6}
+                step={0.5}
+                onChange={s.setAnomalyLimit}
+              />
+              <div
+                className="mt-2 h-2.5 w-full rounded-sm"
+                style={{ background: cssGradient("delta") }}
+              />
+              <div className="mt-0.5 flex justify-between font-mono text-[9px] text-slate-500">
+                <span>-{s.anomalyLimit}</span>
+                <span>0</span>
+                <span>+{s.anomalyLimit}</span>
+              </div>
+              <div className="mt-1.5 text-[9px] leading-relaxed text-slate-500">
+                standard deviations from the eddy-free climatological mean at
+                this depth and day of year -- not a plain outlier test
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
+
       {s.phase === "block" && (
         <>
           <Section title="Block">
@@ -140,6 +180,10 @@ export default function ControlPanel() {
                 label="volume opacity" value={s.opacity}
                 min={0.1} max={1} step={0.05} onChange={s.setOpacity}
               />
+            </div>
+            <div className="mt-2 text-[9px] leading-relaxed text-slate-500">
+              the vertical axis follows the model levels, not metres, so the
+              upper ocean fills most of the block and the abyss is compressed
             </div>
           </Section>
           <Section title="Layers">
@@ -154,6 +198,37 @@ export default function ControlPanel() {
               <div className="mb-1 text-[9px] leading-relaxed text-slate-500">
                 flow direction and relative speed are the model&apos;s; playback
                 is time-compressed
+              </div>
+            )}
+            <Toggle
+              checked={s.showSection}
+              onChange={() => s.toggle("showSection")}
+              label="Cross-section"
+            />
+            {s.showSection && (
+              <div className="mt-1 space-y-1">
+                <div className="text-[9px] leading-relaxed text-slate-500">
+                  {s.sectionPoints.length === 0
+                    ? "click a point on the sea surface"
+                    : s.sectionPoints.length === 1
+                      ? "click the second point"
+                      : "curtain sampled at the model levels"}
+                </div>
+                {s.sectionPoints.length > 0 && (
+                  <div className="font-mono text-[9px] text-slate-400">
+                    {s.sectionPoints
+                      .map((p) => `${p[0].toFixed(2)}, ${p[1].toFixed(2)}`)
+                      .join("  to  ")}
+                  </div>
+                )}
+                {s.sectionPoints.length > 0 && (
+                  <button
+                    onClick={s.clearSection}
+                    className="rounded border border-slate-700 px-2 py-0.5 text-[10px] text-slate-300 hover:bg-slate-800"
+                  >
+                    Clear points
+                  </button>
+                )}
               </div>
             )}
             <Toggle

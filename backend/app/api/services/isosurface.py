@@ -100,9 +100,14 @@ def extract_isosurface(
     depth_range: DepthRange,
     step_size: int = 1,
     max_vertices: int = MAX_VERTICES,
+    max_shape: tuple[int, int, int] = MAX_SHAPE,
 ) -> bytes:
+    # `max_shape` must match the LOD of the volume this surface is drawn inside.
+    # Both products are positioned by normalized LEVEL INDEX, so a different
+    # depth decimation puts the same isotherm at a different height and the
+    # surface drifts away from the volume it is supposed to trace.
     values, coords = cfd.select(
-        variable, bbox=bbox, time=time, depth_range=depth_range, max_shape=MAX_SHAPE
+        variable, bbox=bbox, time=time, depth_range=depth_range, max_shape=max_shape
     )
     if min(values.shape) < 2:
         raise ValueError(

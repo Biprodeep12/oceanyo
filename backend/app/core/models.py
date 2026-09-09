@@ -137,3 +137,6 @@ class HealthResponse(BaseModel):
     variables: list[str]
     platforms: list[str]
     standards: dict[str, bool] = Field(default_factory=dict)
+    #: canonical variables a climatology anomaly can be computed for; empty
+    #: when the catalog carries no climatology at all.
+    climatology: list[str] = Field(default_factory=list)

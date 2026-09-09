@@ -313,3 +313,74 @@ class CFDataset:
             coords["depth"] = np.array([0.0])
 
         return values, coords
+
+    # -- arbitrary track sampling ----------------------------------------
+    def sample_track(
+        self,
+        canonical: str,
+        lons: np.ndarray,
+        lats: np.ndarray,
+        *,
+        time: str | None = None,
+        depth_range: DepthRange | None = None,
+        max_levels: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Bilinearly sample one variable along an arbitrary horizontal track.
+
+        Returns (values, depths) with values shaped (depth, n_points) and depth
+        ascending downward -- the same vertical orientation `select` guarantees,
+        so a vertical section drops straight into block space with no extra
+        flipping.
+
+        Interpolation rather than nearest neighbour: a section is read as a
+        continuous curtain, and nearest sampling turns a smooth thermocline
+        into a staircase at the grid resolution. NaN propagates, so the section
+        stops at the seabed by itself.
+        """
+        raw = self.raw_name(canonical)
+        da = self.ds[raw]
+        ax = self.axes
+
+        if ax.time is not None and ax.time in da.dims:
+            da = da.sel({ax.time: self.nearest_time(time)}, method="nearest")
+
+        depth_dim = ax.depth if (ax.depth and ax.depth in da.dims) else None
+        if depth_dim is not None:
+            if depth_range is not None:
+                d_asc = bool(self.depths[0] <= self.depths[-1])
+                sl = (
+                    slice(depth_range.top, depth_range.bottom)
+                    if d_asc
+                    else slice(depth_range.bottom, depth_range.top)
+                )
+                da = da.sel({depth_dim: sl})
+            n = da.sizes[depth_dim]
+            if max_levels and n > max_levels:
+                da = da.isel({depth_dim: slice(None, None, int(np.ceil(n / max_levels)))})
+
+        # scipy's interpolator requires ascending coordinates; a descending
+        # latitude axis (common in real products) otherwise returns all-NaN
+        # with no error at all.
+        sort_by = [c for c in (ax.lat, ax.lon) if c in da.coords]
+        if sort_by:
+            da = da.sortby(sort_by)
+
+        # Two DataArrays sharing a dimension makes this POINTWISE interpolation
+        # along the track, not an outer product over the two axes.
+        track = da.interp(
+            {
+                ax.lon: xr.DataArray(np.asarray(lons, dtype=float), dims="s"),
+                ax.lat: xr.DataArray(np.asarray(lats, dtype=float), dims="s"),
+            },
+            method="linear",
+        )
+
+        if depth_dim is None:
+            return np.asarray(track.values, dtype=np.float32)[np.newaxis, :], np.array([0.0])
+
+        track = track.transpose(depth_dim, "s")
+        dv = np.asarray(track[depth_dim].values, dtype=float)
+        if not ax.positive_down:
+            dv = -dv
+        order = np.argsort(dv)
+        return np.asarray(track.values, dtype=np.float32)[order], dv[order]

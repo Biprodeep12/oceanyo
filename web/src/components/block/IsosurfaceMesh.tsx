@@ -27,6 +27,12 @@ interface Props {
   time?: string;
   size: [number, number, number];
   color: string;
+  /**
+   * LOD of the volume this surface is drawn inside. Both are placed by
+   * normalized level index, so a mismatched depth decimation slides the
+   * surface off the feature it is supposed to trace.
+   */
+  res?: "coarse" | "full";
 }
 
 export default function IsosurfaceMesh({
@@ -37,6 +43,7 @@ export default function IsosurfaceMesh({
   time,
   size,
   color,
+  res,
 }: Props) {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -45,19 +52,19 @@ export default function IsosurfaceMesh({
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
-    const url = api.isosurfaceUrl({ variable, bbox, depthRange, level, time });
+    const url = api.isosurfaceUrl({ variable, bbox, depthRange, level, time, res });
 
     (async () => {
       try {
-        const res = await fetch(url, { signal: ac.signal });
-        if (!res.ok) {
+        const response = await fetch(url, { signal: ac.signal });
+        if (!response.ok) {
           // 422 means the requested level lies outside this selection's range,
           // which is a normal thing for a user to ask for -- not a failure.
-          const body = await res.json().catch(() => ({}));
-          if (!cancelled) setError(body?.detail ?? `isosurface ${res.status}`);
+          const body = await response.json().catch(() => ({}));
+          if (!cancelled) setError(body?.detail ?? `isosurface ${response.status}`);
           return;
         }
-        const buf = await res.arrayBuffer();
+        const buf = await response.arrayBuffer();
         const gltf = await new GLTFLoader().parseAsync(buf, "");
         if (cancelled) return;
 
@@ -86,7 +93,7 @@ export default function IsosurfaceMesh({
       cancelled = true;
       ac.abort();
     };
-  }, [variable, bbox, depthRange, level, time]);
+  }, [variable, bbox, depthRange, level, time, res]);
 
   // Dispose on unmount: this geometry can be a few hundred thousand vertices.
   useEffect(

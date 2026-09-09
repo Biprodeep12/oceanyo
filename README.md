@@ -82,13 +82,19 @@ Open <http://localhost:3000>.
 
 1. Map of the Bay of Bengal, surface temperature as raster tiles, Argo and
    glider markers coloured by model–observation error.
-2. Pick a region — **shift+drag** on the map, or a named preset — then adjust
+2. **Show anomaly** recolours the map by departure from climatology, in
+   standard deviations. The mesoscale eddies separate cleanly from the
+   seasonal cycle, because the climatology is generated eddy-free.
+3. Pick a region — **shift+drag** on the map, or a named preset — then adjust
    the four corner handles.
-3. Press **Dive**. The footprint extrudes into a 3D block.
-4. Orbit the block, scrub the depth slider, play the timeline.
-5. Click a float in the water column → its profile, and the model-vs-observation
+4. Press **Dive**. The footprint extrudes into a 3D block.
+5. Orbit the block, scrub the depth slider, play the timeline.
+6. Click a float in the water column → its profile, and the model-vs-observation
    comparison with bias / RMSE / MAE / correlation.
-6. **Back to map** reverses it.
+7. **Cross-section**, then click two points on the sea surface, hangs a
+   vertical curtain through the block: mixed layer, thermocline and the cut
+   against the seabed.
+8. **Back to map** reverses it.
 
 ---
 
@@ -99,7 +105,7 @@ config/catalog.*.yaml     the swap surface: synthetic <-> real, same schema
 backend/app/core/         the seam. conventions.py is written by the generator
                           AND read by the CF adapter, which is what makes the
                           swap a config change rather than a rewrite
-backend/app/api/          FastAPI: 14 endpoints, parser registry, services
+backend/app/api/          FastAPI: 20 endpoints, parser registry, services
 backend/app/pipeline/     synthetic generator + contract verification
 web/src/                  Next.js: MapLibre map mode, react-three-fiber block
 ```
@@ -125,11 +131,21 @@ web/src/                  Next.js: MapLibre map mode, react-three-fiber block
 - **Binary data and GPU handles are never in React state.** A re-render that
   drops a texture reference without disposing it leaks GPU memory and crashes a
   laptop a few selections later.
-- **The depth axis is stretched, not linear.** The model resolves the upper
-  ocean far more finely than the abyss, so block geometry uses normalised layer
-  index and the axis is labelled from the real depth table — as ocean profile
-  plots conventionally are. The isosurface mesh uses the same index space, so
-  the two always align.
+- **The depth axis is stretched, not linear, and *everything* uses it.** The
+  model resolves the upper ocean far more finely than the abyss, so block
+  geometry uses normalised layer index and the axis is labelled from the real
+  depth table — as ocean profile plots conventionally are. The volume, the
+  isosurface, the seabed mesh, the floats, the glider tracks and the section
+  curtain all go through the single `depthToY` mapping, and the isosurface is
+  extracted at the same level-of-detail as the volume on screen so their level
+  tables match. Mixing index space with linear depth is not a cosmetic error:
+  it put 1000 m floats at mid-block when that water was near the bottom, and
+  drew shelf seabed near the surface with rendered water beneath it.
+- **The climatology is interpolated onto the model grid, not required to match
+  it.** The synthetic pair happens to share axes, which would have made a shape
+  check pass forever — but every real climatology is coarser than the model it
+  is compared against (WOA 1/4°, Roemmich–Gilson 1°, GLORYS 1/12°), so that
+  check would have failed on the first real swap.
 - **`xpublish` is mounted on a background thread inside try/except.** Importing
   `xpublish-wms` measured 30–70 s on this machine, and it is the least mature
   dependency in the stack. The API boots in ~2 s regardless; `/api/health`
@@ -199,22 +215,26 @@ the ASCII/CSV ingestion requirement).
 ## Verification
 
 ```bash
-npm run verify           # data contract: 34 assertions
-node web/scripts/smoke.mjs   # browser smoke test (needs both servers up)
+npm run verify           # data contract: 40 assertions
+node web/scripts/smoke.mjs   # browser smoke test, 20 steps (needs both servers)
 ```
 
 The smoke test drives the real demo path in Chromium and fails on any console
 error: load, catalog, map render, region select, Dive, block render, click a
-float, matchup statistics, back to map. It is what caught the MapLibre worker
-failure, the CSS position collision and the tile-template encoding bug -- none
-of which a typecheck or an API test can see.
+float, matchup statistics, isosurface, current particles, colorbar, anomaly
+layer, glider tracks, cross-section, back to map. It is what caught the
+MapLibre worker failure, the CSS position collision, the tile-template encoding
+bug and a conditional-hook regression -- none of which a typecheck or an API
+test can see.
 
 Covers CF axis detection and `positive="down"`, monotonic axes, variable
 resolution by `standard_name`, depth coverage to 2000 m for Argo matchups, the
 `(depth, lat, lon)` orientation contract, seabed masking, quantization round-trip
 within one quantum, fill mapping to reserved raw 0, parser discovery, the
-assertion that no instrument samples below the seafloor, and the end-to-end
-bias-recovery test.
+assertion that no instrument samples below the seafloor, section sampling
+checked against the gridded field at the same coordinates, climatology
+interpolation producing structured (not flat, not all-NaN) anomalies, and the
+end-to-end bias-recovery test.
 
 The same suite runs against whichever catalog is configured, so it is also the
 gate for a real-data swap.
@@ -241,8 +261,24 @@ driving the map tiles and the volume shader from one setting), 1x-10x vertical
 exaggeration, simultaneous model + observation overlay, model-vs-observation
 matchup, and the CF / WMS / OPeNDAP standards surface.
 
+Both "stretch within MVP" items are also built:
+
+- **Climatology anomaly layer.** `/tiles/anomaly/...` renders the z-score
+  against the eddy-free climatology on a diverging scale centred at zero, with
+  a configurable sigma limit. Because the synthetic climatology is generated
+  with mesoscale features switched off, the layer isolates the eddies from the
+  seasonal cycle -- which is exactly the distinction between a defensible
+  anomaly and a naive outlier detector.
+- **Two-point vertical cross-section.** Click two points on the sea surface and
+  `/api/section` returns the curtain between them, sampled at the model's own
+  levels and hung inside the block. The image rows *are* the model levels, so
+  the curtain shares the vertical axis with the volume and lands inside it by
+  construction rather than by tuning.
+
 Reduced fidelity, stated plainly: the extrude is a camera and opacity crossfade
 rather than the pixel-registered map-to-block hand-off; the current layer's
 playback is time-compressed (direction and relative speed are the model's, the
-rate is not, and the UI says so); and the climatology anomaly endpoint
-(`/api/anomaly`) works but has no UI layer -- it remains a stretch item.
+rate is not, and the UI says so); and the section track is a straight line in
+longitude/latitude rather than a great circle, which over a selection-sized
+span is smaller than the grid spacing (reported distances are still true
+great-circle kilometres).

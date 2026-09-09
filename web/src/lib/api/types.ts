@@ -37,6 +37,8 @@ export interface HealthResponse {
   variables: string[];
   platforms: string[];
   standards: Record<string, boolean>;
+  /** Variables this catalog can produce a climatology anomaly for. */
+  climatology: string[];
 }
 
 export interface ProfileVariable {
@@ -186,3 +188,30 @@ export interface VolumePayload {
 }
 
 export type BBox = [number, number, number, number]; // w, s, e, n
+
+/**
+ * GET /api/section -- a vertical curtain between two points.
+ *
+ * `depths` are the model's OWN levels, not an evenly spaced axis, and rows of
+ * `values` follow them shallowest-first. The client places each row by index
+ * so the curtain shares the block's vertical axis with the volume.
+ */
+export interface SectionResponse {
+  variable: string;
+  units: string;
+  p0: [number, number];
+  p1: [number, number];
+  lengthKm: number;
+  time: string;
+  shape: [number, number]; // depth, along-track
+  distanceKm: number[];
+  lon: number[];
+  lat: number[];
+  depths: number[];
+  seabed: (number | null)[] | null;
+  vmin: number;
+  vmax: number;
+  dataRange: [number, number];
+  coverage: number;
+  values: (number | null)[][];
+}

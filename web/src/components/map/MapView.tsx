@@ -26,6 +26,8 @@ import { useDisplaySettings } from "@/state/useDisplaySettings";
 
 const FIELD_SOURCE = "ocean-field";
 const FIELD_LAYER = "ocean-field-layer";
+const ANOM_SOURCE = "ocean-anomaly";
+const ANOM_LAYER = "ocean-anomaly-layer";
 const OBS_SOURCE = "observations";
 const SEL_SOURCE = "selection";
 
@@ -94,6 +96,10 @@ function tileTemplate(
   return `${location.origin}${api.tileUrl(variable, time, depth, display)}`;
 }
 
+function anomalyTemplate(variable: string, time: string, depth: number, limit: number) {
+  return `${location.origin}${api.anomalyTileUrl(variable, time, depth, limit)}`;
+}
+
 function selectionGeoJSON(bbox: BBox | null): GeoJSON.FeatureCollection {
   if (!bbox) return { type: "FeatureCollection", features: [] };
   const [w, s, e, n] = bbox;
@@ -132,6 +138,9 @@ export default function MapView({ visible }: { visible: boolean }) {
   const selection = useSessionStore((s) => s.selection);
   const observations = useSessionStore((s) => s.observations);
   const errorById = useSessionStore((s) => s.errorById);
+  const showAnomaly = useSessionStore((s) => s.showAnomaly);
+  const anomalyLimit = useSessionStore((s) => s.anomalyLimit);
+  const climatologyVars = useSessionStore((s) => s.health?.climatology);
   const time = useSessionStore(currentTime);
   const display = useDisplaySettings();
   const setSelection = useSessionStore((s) => s.setSelection);
@@ -172,6 +181,22 @@ export default function MapView({ visible }: { visible: boolean }) {
         type: "raster",
         source: FIELD_SOURCE,
         paint: { "raster-opacity": 0.85, "raster-fade-duration": 150 },
+      });
+
+      // Anomaly sits directly above the field layer and below the vectors,
+      // so toggling it swaps what the ocean is coloured by without disturbing
+      // the selection rectangle or the instrument markers.
+      m.addSource(ANOM_SOURCE, {
+        type: "raster",
+        tiles: [anomalyTemplate(variable, time ?? "latest", depth, anomalyLimit)],
+        tileSize: 256,
+      });
+      m.addLayer({
+        id: ANOM_LAYER,
+        type: "raster",
+        source: ANOM_SOURCE,
+        layout: { visibility: "none" },
+        paint: { "raster-opacity": 0.9, "raster-fade-duration": 150 },
       });
 
       m.addSource(OBS_SOURCE, {
@@ -309,6 +334,22 @@ export default function MapView({ visible }: { visible: boolean }) {
     // MapLibre keeps showing the old tiles until new ones arrive, so a colour
     // change reads as a cross-fade rather than a flash of empty map.
   }, [variable, depth, time, ready, display]);
+
+  // --- anomaly overlay ---
+  //
+  // Gated on the catalog actually having a climatology for THIS variable. The
+  // toggle can stay on while the user switches to chlorophyll or a velocity
+  // component, and without this the layer would keep requesting tiles that
+  // correctly 404.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const visible = showAnomaly && (climatologyVars ?? []).includes(variable);
+    m.setLayoutProperty(ANOM_LAYER, "visibility", visible ? "visible" : "none");
+    if (!visible) return;
+    const src = m.getSource(ANOM_SOURCE) as maplibregl.RasterTileSource | undefined;
+    src?.setTiles([anomalyTemplate(variable, time ?? "latest", depth, anomalyLimit)]);
+  }, [showAnomaly, anomalyLimit, variable, depth, time, ready, climatologyVars]);
 
   // --- observation markers ---
   useEffect(() => {

@@ -211,6 +211,82 @@ def run_contract(catalog_path: Path) -> bool:
         except Exception as exc:
             c.check(False, "observations: seabed consistency", str(exc))
 
+    # --- section sampling orientation ---
+    #
+    # A transposed or vertically flipped section still returns entirely
+    # plausible numbers -- warm at one end, cold at the other -- so the only
+    # way to catch it is to compare against the gridded field at the SAME
+    # coordinates. This is the section equivalent of the select() orientation
+    # contract above.
+    try:
+        s_lons, s_lats = model.lons, model.lats
+        pa = (float(s_lons[len(s_lons) // 4]), float(s_lats[len(s_lats) // 4]))
+        pb = (float(s_lons[3 * len(s_lons) // 4]), float(s_lats[3 * len(s_lats) // 4]))
+        sec, sec_depths = model.sample_track(
+            "temperature",
+            np.array([pa[0], pb[0]]),
+            np.array([pa[1], pb[1]]),
+            depth_range=DepthRange(0.0, 2000.0),
+        )
+        c.check(
+            bool(np.all(np.diff(sec_depths) > 0)),
+            "section: depth ascends downward",
+            f"{sec_depths[0]:.2f} .. {sec_depths[-1]:.1f} m, {len(sec_depths)} levels",
+        )
+        c.check(
+            sec.shape == (len(sec_depths), 2),
+            "section: shaped (depth, along-track)",
+            str(sec.shape),
+        )
+        ax = model.axes
+        ref = model.ds[model.raw_name("temperature")]
+        if ax.time is not None:
+            ref = ref.isel({ax.time: 0})
+        expect = float(
+            ref.sel(
+                {ax.lon: pa[0], ax.lat: pa[1], ax.depth: sec_depths[0]},
+                method="nearest",
+            ).values
+        )
+        got = float(sec[0, 0])
+        c.check(
+            abs(got - expect) < 1e-3,
+            "section: agrees with the gridded field at the same point",
+            f"section {got:.4f} vs grid {expect:.4f}",
+        )
+    except Exception as exc:
+        c.check(False, "section: sampling", str(exc))
+
+    # --- climatology anomaly ---
+    #
+    # The climatology is interpolated onto the model grid rather than required
+    # to match it, because every real climatology is coarser than the model it
+    # is compared against. A silent all-NaN result (a descending axis, a
+    # missing level) would look exactly like "no anomaly anywhere".
+    if cat.climatology is not None:
+        try:
+            from ...api.services.anomaly import anomaly_grid, available_variables
+
+            clim = CFDataset.open(
+                cat.climatology.uri, source=cat.source, synthetic=cat.synthetic,
+                var_map=cat.climatology.variables, engine=cat.climatology.engine,
+            )
+            avail = available_variables(model, clim)
+            c.check("temperature" in avail, "climatology: temperature anomaly available",
+                    str(avail))
+            if "temperature" in avail:
+                g = anomaly_grid(
+                    model, clim, variable="temperature", bbox=box, time=None, depth=0.0
+                )
+                finite = np.isfinite(g.z)
+                c.check(bool(finite.any()), "anomaly: produces finite z-scores",
+                        f"{finite.mean():.0%} of cells")
+                sd = float(np.nanstd(g.z)) if finite.any() else 0.0
+                c.check(sd > 0.05, "anomaly: has spatial structure, not a flat field",
+                        f"sd {sd:.3f}")
+        except Exception as exc:
+            c.check(False, "climatology: anomaly", str(exc))
+
     # --- end-to-end: does the matchup recover the injected bias? ---
     #
     # The single most valuable check in the project, and it exists only because

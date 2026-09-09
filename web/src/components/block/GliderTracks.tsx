@@ -14,7 +14,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { api } from "@/lib/api/client";
 import type { BBox, ObservationFeature } from "@/lib/api/types";
-import { makeFrame, toBlockSpace, toWorld } from "@/lib/geo/blockSpace";
+import { makeFrame, toBlockSpaceAt, toWorld } from "@/lib/geo/blockSpace";
 
 /** Torpedo hull, nose cone and swept wings, merged into one geometry. */
 function gliderGeometry(): THREE.BufferGeometry {
@@ -52,6 +52,8 @@ interface Props {
   bbox: BBox;
   depthRange: [number, number];
   exaggeration: number;
+  /** Level table from the volume header -- the vertical axis of the block. */
+  depths: number[];
 }
 
 interface Track {
@@ -66,6 +68,7 @@ export default function GliderTracks({
   bbox,
   depthRange,
   exaggeration,
+  depths,
 }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const geometry = useMemo(() => gliderGeometry(), []);
@@ -107,7 +110,7 @@ export default function GliderTracks({
           // depth per point reconstructs that sawtooth.
           const pts = traj.map((t, i) => {
             const d = i % 2 === 0 ? depthRange[0] + 5 : Math.min(maxDepth, depthRange[1]);
-            const norm = toBlockSpace(t.lon, t.lat, d, bbox, depthRange);
+            const norm = toBlockSpaceAt(t.lon, t.lat, d, bbox, depthRange, depths);
             const [x, y, z] = toWorld(norm, frame);
             return new THREE.Vector3(x, y, z);
           });
@@ -127,7 +130,7 @@ export default function GliderTracks({
       cancelled = true;
       ac.abort();
     };
-  }, [deployments, bbox, depthRange, frame]);
+  }, [deployments, bbox, depthRange, frame, depths]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
 

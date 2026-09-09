@@ -2,8 +2,14 @@
 // Run with both dev servers up:  node web/scripts/smoke.mjs
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
-const OUT = process.env.SMOKE_OUT ?? "./smoke";
+// Relative to THIS file, not the shell's working directory, so the
+// screenshots always land in web/smoke/ whether the test is run from the repo
+// root or from web/ -- otherwise they scatter and escape .gitignore.
+const OUT =
+  process.env.SMOKE_OUT ?? resolve(dirname(fileURLToPath(import.meta.url)), "../smoke");
 mkdirSync(OUT, { recursive: true });
 
 const errors = [];
@@ -196,6 +202,33 @@ await step("colorbar drives tiles", async () => {
   await page.screenshot({ path: `${OUT}/09-colorbar.png` });
 });
 
+await step("anomaly layer vs climatology", async () => {
+  // Map mode. The toggle only exists for variables the catalog has a
+  // climatology for, so its absence is itself a failure worth catching.
+  await page.getByLabel("Show anomaly").check();
+  const ok = await page
+    .waitForResponse((r) => r.url().includes("/tiles/anomaly/") && r.status() === 200, {
+      timeout: 30000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!ok) throw new Error("no successful anomaly tile response");
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: `${OUT}/10-anomaly.png` });
+
+  // The toggle outlives the variable. Switching to one the catalog has no
+  // climatology for must stop the layer silently, not keep requesting tiles
+  // that correctly 404.
+  await page.locator("select").first().selectOption("chlorophyll");
+  await page.waitForTimeout(2500);
+  const stray = requests.filter((u) => u.includes("/tiles/anomaly/chlorophyll"));
+  if (stray.length) throw new Error(`${stray.length} anomaly tiles without a climatology`);
+
+  await page.locator("select").first().selectOption("temperature");
+  await page.waitForTimeout(600);
+  await page.getByLabel("Show anomaly").uncheck();
+});
+
 await step("glider tracks in the water column", async () => {
   await page.getByRole("button", { name: "East of Sri Lanka", exact: true }).click();
   await page.getByRole("button", { name: "Dive" }).click();
@@ -207,6 +240,52 @@ await step("glider tracks in the water column", async () => {
     throw new Error("no glider trajectory fetched");
   }
   await page.screenshot({ path: `${OUT}/11-gliders.png` });
+});
+
+await step("cross-section curtain", async () => {
+  await page.getByLabel("Cross-section").check();
+  const canvas = await page.locator("canvas").last().boundingBox();
+  const cx = canvas.x + canvas.width / 2;
+  const cy = canvas.y + canvas.height / 2;
+
+  // The pick plane is the top face of the block, so its screen position
+  // depends on the camera. Probe until the panel confirms each point landed.
+  const probe = async (want, offsets) => {
+    for (const [dx, dy] of offsets) {
+      await page.mouse.click(cx + dx, cy + dy);
+      await page.waitForTimeout(150);
+      const text = await page.evaluate(() => document.body.innerText);
+      if (text.includes(want)) return true;
+    }
+    return false;
+  };
+
+  const first = [];
+  for (let dx = -220; dx <= 60; dx += 40) {
+    for (let dy = -170; dy <= -30; dy += 35) first.push([dx, dy]);
+  }
+  if (!(await probe("click the second point", first))) {
+    throw new Error("first section point never registered");
+  }
+
+  const second = [];
+  for (let dx = 60; dx <= 260; dx += 40) {
+    for (let dy = -120; dy <= 40; dy += 35) second.push([dx, dy]);
+  }
+  if (!(await probe("curtain sampled at the model levels", second))) {
+    throw new Error("second section point never registered");
+  }
+
+  // Both the level table (JSON) and the pixels (PNG) must arrive.
+  await page.waitForTimeout(3000);
+  const json = requests.filter(
+    (u) => u.includes("/api/section") && !u.includes("fmt=png"),
+  );
+  const png = requests.filter((u) => u.includes("/api/section") && u.includes("fmt=png"));
+  if (!json.length || !png.length) {
+    throw new Error(`section json=${json.length} png=${png.length}`);
+  }
+  await page.screenshot({ path: `${OUT}/12-section.png` });
 });
 
 await step("back to map", async () => {

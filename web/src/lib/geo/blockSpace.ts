@@ -104,6 +104,46 @@ export function depthToIndexFraction(depths: number[], depth: number): number {
   return 1;
 }
 
+/**
+ * THE vertical mapping for block mode: depth -> normalized height (1 = surface).
+ *
+ * Everything drawn inside the block must go through this. The volume is a 3D
+ * texture stretched over a box, so its layers land at even fractions of the
+ * block height -- the block's vertical axis IS normalized LAYER INDEX, and
+ * because model levels are exponentially spaced, that is nothing like linear
+ * depth. Halfway up a 0-2000 m block is ~65 m, not 1000 m.
+ *
+ * Positioning the seabed, floats and gliders by linear depth instead put them
+ * more than half a block away from the water they belong to: a 1000 m parking
+ * depth drew mid-block while that water was near the bottom, and shelf seabed
+ * drew near the surface with volume rendered below it.
+ *
+ * Falls back to linear depth only when there is no level table yet (before the
+ * first volume arrives), which is also the only time nothing else is drawn.
+ */
+export function depthToY(
+  depths: number[],
+  depth: number,
+  depthRange: [number, number],
+): number {
+  if (depths.length >= 2) return 1 - depthToIndexFraction(depths, depth);
+  const [top, bottom] = depthRange;
+  return 1 - (depth - top) / Math.max(bottom - top, 1e-9);
+}
+
+/** Block-space position of a geographic point, on the block's vertical axis. */
+export function toBlockSpaceAt(
+  lon: number,
+  lat: number,
+  depth: number,
+  bbox: BBox,
+  depthRange: [number, number],
+  depths: number[],
+): [number, number, number] {
+  const [x, , z] = toBlockSpace(lon, lat, depth, bbox, depthRange);
+  return [x, depthToY(depths, depth, depthRange), z];
+}
+
 /** Nicely rounded depth ticks for the axis, chosen from the actual levels. */
 export function depthTicks(depths: number[], count = 6): number[] {
   if (!depths.length) return [];

@@ -9,9 +9,10 @@ import type { BathymetryResponse, BBox, VolumeHeader } from "@/lib/api/types";
 import { colormapTexture } from "@/lib/color/colormaps";
 import {
   depthToIndexFraction,
+  depthToY,
   layerDepth,
   makeFrame,
-  toBlockSpace,
+  toBlockSpaceAt,
   toWorld,
 } from "@/lib/geo/blockSpace";
 import { getCached, loadVolume, volumeKey } from "@/lib/loading/volumeStore";
@@ -22,6 +23,7 @@ import { useDisplaySettings } from "@/state/useDisplaySettings";
 import CurrentParticles from "./CurrentParticles";
 import GliderTracks from "./GliderTracks";
 import IsosurfaceMesh from "./IsosurfaceMesh";
+import SectionCurtain from "./SectionCurtain";
 
 // ---------------------------------------------------------------- seabed
 
@@ -30,11 +32,13 @@ function SeabedMesh({
   bbox,
   depthRange,
   exaggeration,
+  depths,
 }: {
   bathy: BathymetryResponse;
   bbox: BBox;
   depthRange: [number, number];
   exaggeration: number;
+  depths: number[];
 }) {
   const geometry = useMemo(() => {
     const [ny, nx] = bathy.shape;
@@ -48,7 +52,10 @@ function SeabedMesh({
         const elev = bathy.elevation[j][i];
         // elevation is positive up; depth is positive down.
         const d = Math.min(Math.max(-elev, depthRange[0]), depthRange[1]);
-        const [, yNorm] = toBlockSpace(0, 0, d, bbox, depthRange);
+        // depthToY, not linear depth: the volume above this seabed is placed
+        // by level index, and mixing the two drew shelf seabed near the
+        // surface with rendered water beneath it.
+        const yNorm = depthToY(depths, d, depthRange);
         const [, y] = toWorld([0, yNorm, 0], frame);
         pos.setZ(idx, y); // plane is rotated below, so Z becomes height
       }
@@ -56,7 +63,7 @@ function SeabedMesh({
     geo.computeVertexNormals();
     return geo;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bathy, bbox.join(","), depthRange.join(","), exaggeration]);
+  }, [bathy, bbox.join(","), depthRange.join(","), exaggeration, depths]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
 
@@ -170,10 +177,12 @@ function Instruments({
   bbox,
   depthRange,
   exaggeration,
+  depths,
 }: {
   bbox: BBox;
   depthRange: [number, number];
   exaggeration: number;
+  depths: number[];
 }) {
   const observations = useSessionStore((s) => s.observations);
   const errorById = useSessionStore((s) => s.errorById);
@@ -227,7 +236,7 @@ function Instruments({
       // Floats sit at their parking depth so they read as being in the water
       // column rather than pinned to the surface.
       const d = Math.min(Math.max(1000, depthRange[0]), depthRange[1]);
-      const norm = toBlockSpace(lon, lat, d, bbox, depthRange);
+      const norm = toBlockSpaceAt(lon, lat, d, bbox, depthRange, depths);
       const [x, y, z] = toWorld(norm, frame);
       dummy.position.set(x, y, z);
       dummy.updateMatrix();
@@ -245,7 +254,7 @@ function Instruments({
     mesh.count = inBox.length;
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }, [inBox, errorById, bbox, depthRange, frame]);
+  }, [inBox, errorById, bbox, depthRange, frame, depths]);
 
   const onClick = async (ev: { instanceId?: number; stopPropagation: () => void }) => {
     ev.stopPropagation();
@@ -286,6 +295,7 @@ function Instruments({
         bbox={bbox}
         depthRange={depthRange}
         exaggeration={exaggeration}
+        depths={depths}
       />
     </group>
   );
@@ -340,6 +350,7 @@ export default function BlockScene() {
   const showSlice = useSessionStore((s) => s.showSlice);
   const showIsosurface = useSessionStore((s) => s.showIsosurface);
   const showParticles = useSessionStore((s) => s.showParticles);
+  const showSection = useSessionStore((s) => s.showSection);
   const isoLevel = useSessionStore((s) => s.isoLevel);
   const opacity = useSessionStore((s) => s.opacity);
   const depth = useSessionStore((s) => s.depth);
@@ -366,6 +377,13 @@ export default function BlockScene() {
     () => (selection ? makeFrame(selection, depthRange, exaggeration) : null),
     [selection, depthRange, exaggeration],
   );
+
+  // The block vertical axis, shared by the volume, the seabed, the
+  // instruments and the section curtain. Memoized for a stable identity: a
+  // fresh `[]` on every render would re-run the seabed geometry build on
+  // every frame while the volume is still in flight. Declared here, above
+  // every early return, so the hook order never changes.
+  const depths = useMemo(() => volume?.header.depths ?? [], [volume]);
 
   // Advance out of the transition when the water column is actually ready.
   //
@@ -440,7 +458,6 @@ export default function BlockScene() {
 
   if (!selection || !frame) return null;
 
-  const depths = volume?.header.depths ?? [];
   const sliceFraction = depths.length ? depthToIndexFraction(depths, depth) : 0;
   const sliceY = (0.5 - sliceFraction) * frame.size[1];
 
@@ -458,6 +475,7 @@ export default function BlockScene() {
           bbox={selection}
           depthRange={depthRange}
           exaggeration={exaggeration}
+          depths={depths}
         />
       )}
 
@@ -498,10 +516,29 @@ export default function BlockScene() {
           time={time}
           size={frame.size}
           color="#9ae6f5"
+          // Same LOD as the volume on screen, so both land on the same levels.
+          res={volume?.header.resolution ?? caps.volumeRes}
         />
       )}
 
-      <Instruments bbox={selection} depthRange={depthRange} exaggeration={exaggeration} />
+      {showSection && (
+        <SectionCurtain
+          bbox={selection}
+          depthRange={depthRange}
+          exaggeration={exaggeration}
+          variable={variable}
+          time={time}
+          depths={depths}
+          size={frame.size}
+        />
+      )}
+
+      <Instruments
+        bbox={selection}
+        depthRange={depthRange}
+        exaggeration={exaggeration}
+        depths={depths}
+      />
     </group>
   );
 }
