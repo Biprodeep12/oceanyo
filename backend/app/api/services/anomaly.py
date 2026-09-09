@@ -39,6 +39,47 @@ class AnomalyGrid:
     z: np.ndarray
 
 
+def climatology_names(
+    model: CFDataset, climatology: CFDataset, key: str
+) -> tuple[str, str] | None:
+    """Find (mean, std) for one canonical variable INSIDE the climatology.
+
+    The climatology is a different product from the model, by a different
+    producer, and it does not have to share the model's vocabulary. Keying it
+    on the model's raw name works only while both come from the same place --
+    which was true for GLORYS against a GLORYS-shaped generator and is false
+    the moment either side is real: WOA23 stores `thetao_mean`, HYCOM calls the
+    field it is compared against `water_temp`, and the anomaly layer silently
+    reported that no variable had a climatology at all.
+
+    So the climatology is resolved on its own terms, canonical name first.
+    """
+    cv = CANONICAL.get(key)
+    candidates: list[str] = []
+    if cv is not None:
+        candidates.append(cv.glorys_name)  # our own convention: thetao, so
+    try:
+        candidates.append(model.raw_name(key))  # same-producer pairing
+    except KeyError:
+        pass
+    candidates.append(key)  # plain canonical: temperature_mean
+
+    for base in candidates:
+        mean, std = f"{base}_mean", f"{base}_std"
+        if mean in climatology.ds and std in climatology.ds:
+            return mean, std
+
+    # Last resort: ask the climatology what it holds, by standard_name.
+    if cv is not None:
+        for name, da in climatology.ds.data_vars.items():
+            sn = str(da.attrs.get("standard_name", ""))
+            if sn and (sn == cv.standard_name or sn in cv.aliases):
+                base = str(name).removesuffix("_mean")
+                if f"{base}_mean" in climatology.ds and f"{base}_std" in climatology.ds:
+                    return f"{base}_mean", f"{base}_std"
+    return None
+
+
 def available_variables(model: CFDataset, climatology: CFDataset | None) -> list[str]:
     """Canonical variables this catalog can actually produce an anomaly for.
 
@@ -50,8 +91,7 @@ def available_variables(model: CFDataset, climatology: CFDataset | None) -> list
         return []
     out = []
     for key in model.canonical_vars():
-        raw = model.raw_name(key)
-        if f"{raw}_mean" in climatology.ds and f"{raw}_std" in climatology.ds:
+        if climatology_names(model, climatology, key) is not None:
             out.append(key)
     return out
 
@@ -88,12 +128,13 @@ def anomaly_grid(
     depth: float,
 ) -> AnomalyGrid:
     raw = model.raw_name(variable)
-    mean_name, std_name = f"{raw}_mean", f"{raw}_std"
-    if mean_name not in climatology.ds or std_name not in climatology.ds:
+    names = climatology_names(model, climatology, variable)
+    if names is None:
         raise KeyError(
-            f"climatology has no {mean_name!r}/{std_name!r}; "
+            f"climatology has no mean/std for {variable!r}; "
             f"available: {list(climatology.ds.data_vars)}"
         )
+    mean_name, std_name = names
 
     values, coords = model.select(variable, bbox=bbox, time=time, depth=depth)
     plane = values[0].astype(np.float64)

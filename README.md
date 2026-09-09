@@ -68,13 +68,39 @@ npm --prefix web install
 npm run synth          # or: npm run synth:tiny for a fast 15 MB version
 
 # 4. Verify the data contract
-npm run verify         # 34 assertions, including the bias-recovery test
+npm run verify         # 40 assertions, including the bias-recovery test
 
 # 5. Run both servers
 npm run dev            # API on :8000, web on :3000
 ```
 
-Open <http://localhost:3000>.
+Open <http://127.0.0.1:3000>.
+
+### Or run it on real data, with no account anywhere
+
+```bash
+npm run fetch:hycom    # 1/12 deg model: HYCOM GOFS 3.1 (public domain)
+npm run fetch:erddap   # chlorophyll (VIIRS) + bathymetry (ETOPO 2022)
+npm run fetch:real     # Argo floats + an EGO glider deployment
+npm run fetch:real -- --woa   # WOA23 climatology
+
+OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
+```
+
+That environment variable is the entire migration. See
+[Real data, end to end](#real-data-end-to-end).
+
+### Docker
+
+```bash
+docker compose up --build     # http://localhost:3000
+```
+
+`data/` is bind-mounted read-only rather than baked into the image: the
+dataset is bigger than the code by two orders of magnitude, and regenerating
+it should not be a rebuild. Generate it on the host first with the commands
+above. *Authored and reviewed, but not run — there is no Docker daemon on the
+development machine, so treat the compose file as unverified.*
 
 ---
 
@@ -216,6 +242,117 @@ both.
 
 ---
 
+## Real data, end to end
+
+The headline claim of this project is that swapping synthetic data for real
+data is a config change. That is only worth saying if someone can run it, so
+there is a second catalog in which **every layer is real and nothing needs an
+account**:
+
+```bash
+OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
+```
+
+| Layer | Source | Grid | Account |
+|---|---|---|---|
+| **Model** T/S/U/V | **HYCOM GOFS 3.1** `GLBy0.08/expt_93.0` | 1/12°, 40 levels to 5000 m | none |
+| **Chlorophyll** | **VIIRS** SNPP + NOAA-20, DINEOF gap-filled (NOAA ERDDAP) | ~1/12°, surface, daily | none |
+| **Bathymetry** | **ETOPO 2022** (NOAA NCEI, ERDDAP) | 30 arc-second | none |
+| **Climatology** | **NOAA WOA23** | 1° | none |
+| **Observations** | **Argo** + **EGO gliders** (Ifremer GDACs) | profiles | none |
+
+### Why HYCOM rather than GLORYS12
+
+GLORYS12 is the product the problem statement names, and `catalog.glorys.yaml`
+carries its dataset IDs and exact `copernicusmarine subset` commands. But it is
+behind a free *registration*, and a credentialed download cannot be part of an
+offline demo or of a grader running `git clone`. HYCOM + NCODA GOFS 3.1 is the
+same class of product — 1/12°, eddy-resolving, 40 levels, daily — in the public
+domain, served over anonymous HTTPS by THREDDS NetcdfSubset.
+
+It is also a **stricter** test of this codebase, for two reasons:
+
+**It shares none of our names.** GLORYS calls temperature `thetao` — which is
+what the synthetic generator writes, because it was built to GLORYS's shape. A
+GLORYS swap would therefore never exercise name resolution at all; the two
+sides agree by construction. HYCOM calls it `water_temp` and declares
+`standard_name = sea_water_temperature`. It resolves through the CF path in
+`core/conventions.py` with an **empty `variables:` map** in the catalog. That is
+the entire ingestion claim, finally under test against a source that disagrees.
+
+**Its temperature is the right one.** HYCOM `water_temp` is in-situ; Argo `TEMP`
+is in-situ. That pairing is physically correct. GLORYS `thetao` is *potential*
+temperature, and comparing it to Argo TEMP carries a small systematic offset
+that grows with depth — a subtlety worth knowing before quoting a bias.
+
+### What real model data changed
+
+**The catalog's bathymetry escape hatch did not work.** `catalog.glorys.yaml`
+has carried `bathymetry.variable: elevation` since the first commit, but the
+router read `ds["elevation"]` directly and ignored it. GEBCO calls that field
+`elevation`; ETOPO 2022 calls it `z`. The declared swap surface was decoration.
+It now resolves catalog → CF `standard_name` → the names these products
+actually use → the sole variable if the file has only one.
+
+**ERDDAP serves NetCDF-3 classic**, exactly like the Argo GDAC, so the engine
+sniffer added for Argo earned its keep a second time on a completely unrelated
+source. `h5netcdf` reports "file signature not found", which reads like a
+corrupt download.
+
+**The matchup window was reported but never enforced.** `MatchupResult`
+carried `windowHours` from the first commit and the colocation code never
+applied it: `CFDataset.select` snaps to the *nearest* model timestep, so an
+Argo profile from **2002** was being compared against a **January 2024**
+analysis and reporting a confident sub-degree bias. Nothing synthetic could
+show this — the generator samples its floats from the model's own timesteps,
+so every profile is in window by construction. Real floats outlive real model
+subsets. Enforcing the window cut 259 "matchups" to the **5 that are real**,
+and the statistics improved as a result:
+
+| | profiles | mean bias | mean RMSE |
+|---|---|---|---|
+| nearest-step (wrong) | 259 | −0.320 °C | 1.02 °C |
+| **±36 h enforced** | **5** | **−0.002 °C** | **0.65 °C** |
+
+Near-zero bias with sub-degree RMSE against real Argo is what a good
+operational analysis looks like. The earlier number was worse *because* it was
+comparing across twenty years.
+
+**Real Argo reports pressures no float can reach.** Float 2900226 logs
+**6552 dbar in 4100 m of water** — beyond even Deep Argo's 6000 m, and deeper
+than the Bay of Bengal. Its good data stops at a 985 dbar parking depth; the
+deep levels are flagged `PRES_QC = 4` or carry no flag at all. The parser now
+applies the two standard tests to *pressure* specifically — QC 3/4/9 dropped,
+range limited to [−5, 6000] dbar — because a bad pressure is not like a bad
+temperature: a sample that cannot be placed in the water column renders at the
+wrong height and interpolates against the wrong model level. Blank QC is
+**kept**, or most of the 2002–2008 record would go with it.
+
+**A profile is not "below the seabed" because a grid says so.** Comparing real
+float depths against real 30-arc-second bathymetry flagged good profiles: the
+contract used one nearest cell, which cannot answer the question on a
+continental slope where the seabed drops a kilometre in two cells. It now takes
+the deepest water within 0.1°, and allows 2% — because profile "depth" here is
+pressure in decibars, and reading dbar as metres overstates depth by 1–2% at
+2000 m. The last offender overshot by 11 m on 2121 m.
+
+**The climatology was keyed on the model's variable names.** WOA23 stores
+`thetao_mean`; HYCOM calls the field it is compared against `water_temp`. The
+anomaly layer reported that *no* variable had a climatology. The climatology is
+a different product by a different producer and is now resolved on its own
+terms — canonical name, then the model's name, then CF `standard_name`.
+
+**The public server has a ~300 s response budget**, and the total work is
+(timesteps × variables), not bytes. Thirty daily steps of four 3D variables at
+1/12° is a couple of hours of its time however it is sliced, and every request
+that overruns is closed with *"Remote end closed connection without response"* —
+a message that reads like a network fault and is really a timeout. The fetcher
+samples every third day instead: same month, same resolution, same variables,
+and still within a couple of days of every Argo profile in the window. The
+timeline loses smoothness; the science loses nothing.
+
+---
+
 ## Datasets
 
 Every source named in the problem statement, what was actually reachable, and
@@ -223,6 +360,7 @@ what it changed.
 
 | # | Source | Reachable without an account | Status |
 |---|---|---|---|
+| a | **HYCOM GOFS 3.1** (substitute for GLORYS12) | **yes** | **Fetched and used.** 1/12°, 40 levels, public domain — see [Real data, end to end](#real-data-end-to-end) |
 | a | Copernicus **GLORYS12V1** | no (free registration) | `catalog.glorys.yaml` carries the dataset IDs and the exact `copernicusmarine subset` commands |
 | a | **INCOIS LAS** | catalog yes, data no | `las.incois.gov.in/thredds/catalog.xml` responds in 0.2 s; the `dodsC` OPeNDAP endpoints for its Ferret `.jnl` datasets time out at 45 s. Data is obtainable through the LAS UI subset flow, not by anonymous OPeNDAP |
 | b | **Argo GDAC** | **yes** | **Fetched and parsed.** 4 INCOIS-DAC floats, 800 profiles, 0 failures |
@@ -337,8 +475,24 @@ Two more things worth knowing about this data:
 | OGC WMS | `/wms?service=WMS&version=1.3.0&request=GetCapabilities` | advertises `thetao`, `so`, `uo`, `vo` |
 | OGC WMS | `/wms?...request=GetMap` | use `crs=EPSG:3857`, or `EPSG:4326` in lon,lat order |
 | OPeNDAP | `/opendap.dds` | full DAP dataset descriptor |
+| OGC WCS | `/wcs?service=WCS&version=2.0.1&request=GetCapabilities` | 2.0.1 **core profile**, KVP |
+| OGC WCS | `/wcs?...request=GetCoverage&coverageId=temperature&subset=Lat(10,18)&subset=Long(85,92)&subset=depth(0,200)` | CF-1.8 NetCDF, trimmed |
 
-Both are served by `xpublish` directly from the CF-compliant xarray dataset.
+WMS and OPeNDAP are served by `xpublish` directly from the CF-compliant xarray
+dataset. **WCS is ours** — no xpublish plugin serves coverages, and the problem
+statement names WMS/WCS together.
+
+The WCS scope is stated rather than implied: GetCapabilities, DescribeCoverage
+and GetCoverage with trimming subsets, in the coverage's native CRS84. There is
+no scaling, interpolation, range-subsetting or reprojection extension.
+Advertising those in a capabilities document and then failing on them is worse
+than not advertising them, because a client believes what it is told. What it
+does do is return the same array the REST API returns, through the same
+`CFDataset` orientation contract, so the two cannot disagree:
+
+```bash
+curl -s "http://127.0.0.1:8000/wcs?service=WCS&version=2.0.1&request=GetCoverage&coverageId=temperature&subset=Lat(10,18)&subset=Long(85,92)&subset=depth(0,200)"   -o coverage.nc     # 27x65x57, opens in xarray, cf-xarray finds every axis
+```
 
 ---
 
@@ -388,8 +542,25 @@ the ASCII/CSV ingestion requirement).
 ```bash
 npm run verify           # data contract: 40 assertions
 npm run fetch:real       # download real Argo + glider data and parse it
-node web/scripts/smoke.mjs   # browser smoke test: 21 desktop + 5 mobile steps
+npm run smoke            # browser smoke test: 21 desktop + 5 mobile steps
 ```
+
+**Run the smoke test against a production build**, not `next dev`:
+
+```bash
+npm --prefix web run build && (cd web && npx next start -p 3000)
+npm run smoke
+```
+
+The dev server is not a reliable test target here. Turbopack's watcher can peg
+a core and stop answering on :3000 partway through a run, and the page then
+looks broken in a way that has nothing to do with the page: blank map, empty
+layer list, no error. A production build has no watcher, no HMR and no
+recompilation, so a failure in it is a real failure — and it is what the demo
+actually runs. Two rules that follow: the test asks for **127.0.0.1**, not
+localhost (see the note in `smoke.mjs`), and **do not edit source while a run
+is in flight** — Fast Refresh remounts MapLibre mid-test and every step after
+that fails with `Style is not done loading`.
 
 The smoke test drives the real demo path in Chromium and fails on any console
 error: load, catalog, map render, pointer readout, shift+drag selection,
@@ -437,7 +608,25 @@ ingestion, CSV ingestion, and the parser registry.
 16-21. Variable selector, customizable colorbar (palette, min/max, log/linear --
 driving the map tiles and the volume shader from one setting), 1x-10x vertical
 exaggeration, simultaneous model + observation overlay, model-vs-observation
-matchup, and the CF / WMS / OPeNDAP standards surface.
+matchup, and the CF / OPeNDAP / OGC **WMS and WCS** standards surface.
+
+Beyond the numbered list, three things the spec argues for in Part I are also
+built:
+
+- **Taylor diagram** (Part I C.7). The matchup panel plots normalised standard
+  deviation, correlation and centred RMSE as one point against a reference,
+  which is how operational ocean-model validation is actually reported. The
+  three statistics were already computed server-side; the geometry that ties
+  them together is what makes the figure readable at a glance.
+- **Locator inset** (Part I B). Choosing a flat map over a globe costs the
+  "where on Earth am I" glance, and the spec asks for it back cheaply. The
+  inset is drawn from the same coastline the map uses -- traced from this
+  project's own bathymetry -- so it cannot stall on a third-party tile server
+  and cannot disagree with the map beside it.
+- **Timeline ring buffer** (5.1 item 7). Neighbouring timesteps are prefetched
+  in the direction of travel, one at a time and only after the current step has
+  rendered, and the scrubber shows what is buffered. Firing them in parallel
+  would put six requests in front of the frame the user is waiting for.
 
 Both "stretch within MVP" items are also built:
 

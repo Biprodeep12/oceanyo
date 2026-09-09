@@ -2,10 +2,13 @@
 
 // The left panel: what is drawn, in Zoom Earth's shape.
 //
-// ZE splits its list into LIVE MAPS (things observed) and FORECAST MAPS
-// (things modelled), which happens to be exactly the distinction this project
-// exists to make visible -- so the same split is used here, with the block
-// layers appearing as a third group once there is a block to put them in.
+// ZE splits its list into LIVE MAPS and FORECAST MAPS. The SHAPE of that split
+// is worth borrowing; the words are not. Nothing here is live -- Argo profiles
+// surface days to months after they are taken -- and nothing here is a
+// forecast: the model is an analysis (or, in the default catalog, synthetic).
+// Borrowing a competitor's vocabulary would assert a provenance we do not have
+// to the one audience most able to check it, so the groups are named for what
+// they actually are: observations, and model fields.
 
 import { useState } from "react";
 
@@ -73,7 +76,7 @@ export default function LayersPanel() {
         className="flex w-full items-center justify-between px-4 pt-3 pb-0.5"
       >
         <span className="ze-section-label !m-0 !p-0">
-          {inBlock ? "Block" : "Live maps"}
+          {inBlock ? "Block" : "Layers"}
         </span>
         <span className="text-[color:var(--ze-text-dim)]">
           {open || mobile ? (
@@ -86,26 +89,16 @@ export default function LayersPanel() {
 
       {(open || mobile) && (
         <>
-          <div className="mt-1">
-            <MenuRow
-              label="Observations"
-              icon={<IconFloat />}
-              checked={s.showObservations}
-              onChange={() => s.toggle("showObservations")}
-              title="Argo floats and gliders, coloured by model-observation error"
-            />
-            {!inBlock && climatologyAvailable && (
-              <MenuRow
-                label="Show anomaly"
-                icon={<IconAnomaly />}
-                checked={s.showAnomaly}
-                onChange={() => s.toggle("showAnomaly")}
-                title="Departure from the eddy-free climatology, in standard deviations"
-              />
-            )}
-          </div>
+          <SectionLabel>Observations</SectionLabel>
+          <MenuRow
+            label="Argo &amp; gliders"
+            icon={<IconFloat />}
+            checked={s.showObservations}
+            onChange={() => s.toggle("showObservations")}
+            title="Argo floats and gliders, coloured by model-observation error"
+          />
 
-          <SectionLabel>Forecast maps</SectionLabel>
+          <SectionLabel>Model fields</SectionLabel>
           {s.variables.map((v) => (
             <MenuRow
               key={v.variable}
@@ -118,6 +111,27 @@ export default function LayersPanel() {
               title={`${v.longName} (${v.standardName}) in ${v.units}`}
             />
           ))}
+          {/* The anomaly is the model against a climatology, so it belongs
+              with the model fields rather than beside the instruments. */}
+          {!inBlock && climatologyAvailable && (
+            <MenuRow
+              label="Show anomaly"
+              icon={<IconAnomaly />}
+              checked={s.showAnomaly}
+              onChange={() => s.toggle("showAnomaly")}
+              title="Departure from the climatology, in standard deviations"
+            />
+          )}
+          {/* Provenance sits with the data it describes. A judge should never
+              have to open a panel to find out what they are looking at. */}
+          {s.health?.source && (
+            <div
+              className="truncate px-4 pt-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]"
+              title={s.health.source}
+            >
+              {s.health.source}
+            </div>
+          )}
 
           <SectionLabel>Depth</SectionLabel>
           <Slider

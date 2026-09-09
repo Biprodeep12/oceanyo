@@ -366,6 +366,9 @@ export default function MapView({ visible }: { visible: boolean }) {
       .then((fc) => {
         const src = m.getSource(LAND_SOURCE) as maplibregl.GeoJSONSource | undefined;
         src?.setData(fc as GeoJSON.FeatureCollection);
+        // The locator inset draws the same rings, so it is shared rather than
+        // fetched twice.
+        useSessionStore.getState().setCoastline(fc as GeoJSON.FeatureCollection);
       })
       .catch(() => {
         /* context only: a map without it is still a working map */

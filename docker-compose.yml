@@ -1,0 +1,68 @@
+# Two services, one command: the spec's "runnable on INCOIS infrastructure".
+#
+#   docker compose up --build
+#   -> http://localhost:3000
+#
+# The data directory is a BIND MOUNT, not a volume or a COPY. The synthetic
+# dataset is ~300 MB and the real HYCOM subset is similar; baking either into
+# an image makes it unpushable and makes regenerating data a rebuild. Generate
+# once on the host, mount it read-only here.
+#
+#   npm run synth                 # synthetic, ~2 minutes
+#   npm run fetch:real            # real Argo + gliders, no credentials
+#   npm run fetch:hycom           # real 1/12 deg model, no credentials
+#
+# Swapping to real data is one line -- the OCEANUPS_CATALOG below -- which is
+# the claim this whole project is built to make good on.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      # The single swap surface. Point it at catalog.hycom.yaml for real
+      # model output, catalog.glorys.yaml for a credentialed GLORYS12 subset.
+      OCEANUPS_CATALOG: /app/config/catalog.synthetic.yaml
+      OCEANUPS_DATA_ROOT: /app/data
+      OCEANUPS_CACHE_DIR: /app/data/cache
+      # xpublish is the least mature dependency in the stack. It is mounted in
+      # a try/except and the API boots either way; set false to skip it.
+      OCEANUPS_ENABLE_XPUBLISH: "true"
+    volumes:
+      - ./data:/app/data:ro
+      - ./config:/app/config:ro
+    ports:
+      # Published for curl, /docs and the OGC endpoints. The web service talks
+      # to it over the compose network as http://api:8000, not through here.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      # /api/health is cheap and reports the catalog it actually opened, so a
+      # container that booted against a missing dataset fails here rather than
+      # looking healthy and serving 500s.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_ORIGIN: http://api:8000
+    environment:
+      # Read by next.config.ts at runtime in the standalone server, so the
+      # rewrites point at the API service rather than at localhost.
+      NEXT_PUBLIC_API_ORIGIN: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        # Not just "started": the frontend's first paint fetches /api/variables,
+        # and an API still loading a 300 MB dataset returns a connection error
+        # that renders as an empty layer list with no explanation.
+        condition: service_healthy
+    restart: unless-stopped

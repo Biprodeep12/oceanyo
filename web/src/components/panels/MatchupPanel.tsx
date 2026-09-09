@@ -6,7 +6,7 @@
 // depths, plus the standard validation statistics. Measured values only --
 // nothing here is generated or inferred.
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useIsMobile } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -103,7 +103,111 @@ function ProfileChart() {
   );
 }
 
+/**
+ * Taylor diagram -- the figure operational ocean-model validation is reported
+ * in, and the one an INCOIS evaluator will recognise on sight.
+ *
+ * Three statistics are shown as ONE point, because geometry ties them together:
+ * radius is the model's standard deviation normalised by the observation's,
+ * azimuth is arccos(correlation), and by the law of cosines the distance from
+ * that point to the reference at (1, 0) IS the centred RMSE. So a point that
+ * sits on the unit arc has the right variability, a point near the horizontal
+ * axis has the right phase, and a point close to REF is simply right.
+ *
+ * Drawn from stdObs / stdModel / corr / crmse, which the matchup endpoint
+ * already computes -- nothing here is re-derived in the browser.
+ */
+function TaylorDiagram() {
+  const matchup = useSessionStore((s) => s.matchup);
+
+  const g = useMemo(() => {
+    if (!matchup) return null;
+    const { stdObs, stdModel, corr } = matchup;
+    if (!stdObs || stdModel == null || corr == null || stdObs <= 0) return null;
+
+    const sd = stdModel / stdObs; // normalised standard deviation
+    const W = 246;
+    const H = 168;
+    const L = 30; // origin x
+    const B = H - 22; // origin y
+    // Scale so the reference arc (sd = 1) sits at 60% of the usable width,
+    // leaving room for a model that is more variable than the observation.
+    const maxSd = Math.max(1.6, Math.min(2.5, sd * 1.25));
+    const R = Math.min(W - L - 30, B - 12) / maxSd;
+    const pt = (s: number, c: number) => {
+      const th = Math.acos(Math.max(-1, Math.min(1, c)));
+      return [L + s * R * Math.cos(th), B - s * R * Math.sin(th)] as const;
+    };
+    const arc = (s: number) => {
+      const [x0, y0] = pt(s, 1);
+      const [x1, y1] = pt(s, 0);
+      return `M${x0.toFixed(1)},${y0.toFixed(1)} A${(s * R).toFixed(1)},${(s * R).toFixed(1)} 0 0 0 ${x1.toFixed(1)},${y1.toFixed(1)}`;
+    };
+    return { W, H, L, B, R, sd, corr, maxSd, pt, arc };
+  }, [matchup]);
+
+  if (!g) {
+    return (
+      <div className="mt-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+        Not enough matched levels to place a Taylor point.
+      </div>
+    );
+  }
+
+  const sdRings = [0.5, 1, 1.5].filter((s) => s <= g.maxSd);
+  const corrTicks = [0, 0.5, 0.8, 0.95, 0.99];
+  const [mx, my] = g.pt(g.sd, g.corr);
+  const [rx, ry] = g.pt(1, 1);
+
+  return (
+    <svg width={g.W} height={g.H} className="mt-1" role="img" aria-label="Taylor diagram">
+      {/* constant-correlation spokes */}
+      {corrTicks.map((c) => {
+        const [x, y] = g.pt(g.maxSd, c);
+        const [lx, ly] = g.pt(g.maxSd * 1.06, c);
+        return (
+          <g key={c}>
+            <line x1={g.L} y1={g.B} x2={x} y2={y} stroke="#1e3244" strokeWidth={1} />
+            <text x={lx} y={ly} fill="#64798c" fontSize={8} fontFamily="monospace"
+              textAnchor="middle" dominantBaseline="middle">
+              {c}
+            </text>
+          </g>
+        );
+      })}
+      {/* normalised standard-deviation arcs; the sd=1 arc is the reference */}
+      {sdRings.map((s) => (
+        <path key={s} d={g.arc(s)} fill="none"
+          stroke={s === 1 ? "#3b5a72" : "#1e3244"}
+          strokeWidth={1}
+          strokeDasharray={s === 1 ? "3 3" : undefined} />
+      ))}
+      {/* centred-RMSE arcs, centred on the reference point */}
+      {[0.5, 1].map((e) => (
+        <circle key={e} cx={rx} cy={ry} r={e * g.R} fill="none" stroke="#2a4a3c"
+          strokeWidth={1} strokeDasharray="2 4" />
+      ))}
+      {/* reference: a perfect model */}
+      <circle cx={rx} cy={ry} r={3.5} fill="#8fa6b8" />
+      <text x={rx} y={ry + 13} fill="#8fa6b8" fontSize={8} textAnchor="middle">REF</text>
+      {/* the model */}
+      <circle cx={mx} cy={my} r={4.5} fill="#4fd1c5" stroke="#0b1b26" strokeWidth={1.2} />
+      <text x={4} y={12} fill="#64798c" fontSize={8} fontFamily="monospace">
+        sd*={g.sd.toFixed(2)}
+      </text>
+      <text x={4} y={22} fill="#64798c" fontSize={8} fontFamily="monospace">
+        r={g.corr.toFixed(3)}
+      </text>
+      <text x={g.W - 4} y={g.H - 4} fill="#64798c" fontSize={8} textAnchor="end">
+        correlation
+      </text>
+      <text x={4} y={g.B + 12} fill="#64798c" fontSize={8}>sd / sd_obs</text>
+    </svg>
+  );
+}
+
 export default function MatchupPanel() {
+  const [chartTab, setChartTab] = useState<"profile" | "taylor">("profile");
   const matchup = useSessionStore((s) => s.matchup);
   const profile = useSessionStore((s) => s.selectedProfile);
   const loading = useSessionStore((s) => s.loadingProfile);
@@ -174,7 +278,26 @@ export default function MatchupPanel() {
             {matchup.n} levels matched within {matchup.radiusKm} km /{" "}
             {matchup.windowHours} h &middot; QC {matchup.qcFlagsUsed.join(",")} only
           </div>
-          <ProfileChart />
+          <div className="mt-1.5 flex gap-1" role="tablist" aria-label="Chart">
+            {(["profile", "taylor"] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={chartTab === t}
+                onClick={() => setChartTab(t)}
+                className="ze-btn !px-2.5 !py-1 !text-[10px]"
+                data-active={chartTab === t ? "true" : "false"}
+                title={
+                  t === "profile"
+                    ? "Observed profile against the model at the same depths"
+                    : "Standard deviation, correlation and centred RMSE as one point"
+                }
+              >
+                {t === "profile" ? "Profile" : "Taylor"}
+              </button>
+            ))}
+          </div>
+          {chartTab === "profile" ? <ProfileChart /> : <TaylorDiagram />}
           <div className="mt-1 border-t border-white/10 pt-1.5 text-[9px] leading-relaxed text-[color:var(--ze-text-faint)]">
             Model interpolated onto observation depths. Statistics use QC flag 1
             (good) only; display keeps 1 and 2.

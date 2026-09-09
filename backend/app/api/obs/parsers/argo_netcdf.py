@@ -111,7 +111,35 @@ class ArgoNetCDFParser:
         with open_dataset(ref.path) as ds:
             i = ref.index
             pres = np.atleast_2d(ds["PRES"].values)[i].astype(float)
-            good_depth = np.isfinite(pres)
+
+            # A level is only usable if its PRESSURE is usable. This is not the
+            # same filter as the one applied to temperature or salinity: a bad
+            # temperature still has a valid depth and can be shown as a gap,
+            # whereas a bad pressure means the sample cannot be placed in the
+            # water column at all -- it renders at the wrong height, sinks
+            # through the seabed, and is interpolated against the wrong model
+            # level in the matchup.
+            #
+            # Two tests, both standard:
+            #
+            #   QC        drop 3 (bad, correctable), 4 (bad) and 9 (missing) per
+            #             Argo reference table 2. Blank/0 ("no QC performed") is
+            #             KEPT -- older floats carry no flags at all, and
+            #             discarding them would throw away most of the 2002-2008
+            #             record rather than the bad levels in it.
+            #   range     PRES must lie within [-5, 6000] dbar. -5 is the Argo
+            #             global range test; 6000 is the deepest a Deep Argo
+            #             float goes, and core floats stop at 2000.
+            #
+            # Found on real float 2900226, which reports 6552 dbar in 4100 m of
+            # water: its deepest levels are flagged 4 or carry no flag, while
+            # the good data stops at a 985 dbar parking depth.
+            good_depth = np.isfinite(pres) & (pres >= -5.0) & (pres <= 6000.0)
+            if "PRES_QC" in ds:
+                pres_qc = np.asarray(
+                    decode_qc(np.atleast_2d(ds["PRES_QC"].values)[i], len(pres))
+                )
+                good_depth &= ~np.isin(pres_qc, (3, 4, 9))
 
             variables: dict[str, ProfileVariable] = {}
             for raw, canonical in VAR_MAP.items():

@@ -221,6 +221,79 @@ def fetch_real(
 
     raise typer.Exit(code=0 if failed == 0 and gbad == 0 else 1)
 
+@app.command("fetch-hycom")
+def fetch_hycom_cmd(
+    out: Path = typer.Option(None, help="raw chunk directory (default data/raw/hycom)"),
+    dest: Path = typer.Option(None, help="merged output (default data/real/hycom_bob_<start>.nc)"),
+    start: str = typer.Option("2024-01-01", help="first day, ISO"),
+    days: int = typer.Option(30, help="how many days the window spans"),
+    step_days: int = typer.Option(3, help="days between timesteps"),
+    west: float = typer.Option(80.0), south: float = typer.Option(5.0),
+    east: float = typer.Option(95.0), north: float = typer.Option(22.0),
+    horiz_stride: int = typer.Option(1, help="1 = native 1/12 degree"),
+) -> None:
+    """Download a REAL 1/12 degree model subset from HYCOM. No account needed.
+
+    Resumable: chunks already on disk are kept, so a re-run after a dropped
+    connection costs only what is missing.
+    """
+    _setup_logging()
+    from .fetch_hycom import build_model, fetch_hycom
+
+    outdir = out or (REPO_ROOT / "data" / "raw" / "hycom")
+    target = dest or (REPO_ROOT / "data" / "real" / f"hycom_bob_{start[:7]}.nc")
+
+    log.info("HYCOM GOFS 3.1 -> %s", outdir)
+    log.info("  %s for %d days, every %d day(s), bbox %g %g %g %g",
+             start, days, step_days, west, south, east, north)
+    chunks = fetch_hycom(
+        outdir, bbox=(west, south, east, north), start=start, days=days,
+        step_days=step_days, horiz_stride=horiz_stride,
+    )
+    total = sum(p.stat().st_size for ps in chunks.values() for p in ps)
+    log.info("  %d chunks, %.0f MB raw", sum(len(v) for v in chunks.values()), total / 1e6)
+
+    path = build_model(chunks, target)
+    from ..core.netcdf import open_dataset
+
+    ds = open_dataset(path)
+    log.info("")
+    log.info("REAL MODEL: %s", path.name)
+    log.info("  grid       %s", dict(ds.sizes))
+    log.info("  variables  %s", list(ds.data_vars))
+    log.info("  point OCEANUPS_CATALOG at config/catalog.hycom.yaml to use it")
+    ds.close()
+
+
+@app.command("fetch-erddap")
+def fetch_erddap_cmd(
+    out: Path = typer.Option(None, help="output directory (default data/real)"),
+    start: str = typer.Option("2024-01-01", help="first day of chlorophyll, ISO"),
+    end: str = typer.Option("2024-01-30", help="last day of chlorophyll, ISO"),
+    stride: int = typer.Option(2, help="bathymetry decimation; 2 = 30 arc-second"),
+    west: float = typer.Option(80.0), south: float = typer.Option(5.0),
+    east: float = typer.Option(95.0), north: float = typer.Option(22.0),
+) -> None:
+    """Download REAL chlorophyll and bathymetry from NOAA ERDDAP. No account."""
+    _setup_logging()
+    from .fetch_erddap import fetch_bathymetry, fetch_chlorophyll, repair_cf
+    from ..core.netcdf import open_dataset
+
+    outdir = out or (REPO_ROOT / "data" / "real")
+    bbox = (west, south, east, north)
+
+    log.info("ERDDAP -> %s", outdir)
+    log.info("  bathymetry: NOAA NCEI ETOPO 2022")
+    bathy = repair_cf(fetch_bathymetry(outdir, bbox=bbox, stride=stride))
+    log.info("  chlorophyll: VIIRS SNPP+NOAA-20, DINEOF gap-filled")
+    chl = repair_cf(fetch_chlorophyll(outdir, bbox=bbox, start=start, end=end))
+
+    for path in (bathy, chl):
+        ds = open_dataset(path)
+        log.info("  %-34s %s  %.1f MB", path.name, dict(ds.sizes),
+                 path.stat().st_size / 1e6)
+        ds.close()
+
 
 if __name__ == "__main__":
     app()

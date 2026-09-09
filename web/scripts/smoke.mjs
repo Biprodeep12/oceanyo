@@ -61,6 +61,22 @@ const pickRegion = async (name) => {
   await page.waitForTimeout(500);
 };
 
+/**
+ * 127.0.0.1, not localhost -- and that is not a style choice.
+ *
+ * They are different ORIGINS to Next's dev server, and it will refuse the HMR
+ * websocket upgrade from one it has not been told about. When it does, the
+ * page still server-renders, React still loads, and then Turbopack never
+ * delivers the dynamic() chunks it serves over that socket. Both canvases are
+ * ssr:false, so the route suspends: no map, no variables, an empty timeline,
+ * and not one error in the console.
+ *
+ * This suite ran green through that entire failure because it asked for
+ * localhost, which was the one host that worked. A test that only exercises
+ * the working address is how a dead page ships.
+ */
+const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3000";
+
 const step = async (name, fn) => {
   process.stdout.write(`  ${name.padEnd(38)}`);
   try {
@@ -76,7 +92,7 @@ console.log("browser smoke test");
 
 await step("load page", async () => {
   // networkidle never settles: the map keeps requesting tiles.
-  await page.goto("http://localhost:3000", { waitUntil: "domcontentloaded", timeout: 60000 });
+  await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 60000 });
 });
 
 await step("WebGL2 available", async () => {
@@ -383,7 +399,7 @@ const mstep = async (name, fn) => {
 };
 
 await mstep("load on a phone viewport", async () => {
-  await mpage.goto("http://localhost:3000", {
+  await mpage.goto(BASE, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });

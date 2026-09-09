@@ -38,6 +38,12 @@ export interface SessionState {
   variables: VariableSummary[];
   presets: RegionPreset[];
   times: string[];
+  /** Full extent this catalog can serve; drives the locator inset. */
+  domain: BBox | null;
+  /** Shared with the locator inset so the coastline is fetched once. */
+  coastline: GeoJSON.FeatureCollection | null;
+  /** Timesteps whose coarse volume is already decoded and on the GPU. */
+  bufferedTimes: string[];
 
   // --- current field selection ---
   variable: string;
@@ -100,6 +106,9 @@ export interface SessionState {
   setVariables: (v: VariableSummary[]) => void;
   setPresets: (p: RegionPreset[]) => void;
   setTimes: (t: string[]) => void;
+  setDomain: (b: BBox | null) => void;
+  setCoastline: (fc: GeoJSON.FeatureCollection | null) => void;
+  setBufferedTimes: (t: string[]) => void;
   setVariable: (v: string) => void;
   setDepth: (d: number) => void;
   setTimeIndex: (i: number) => void;
@@ -144,6 +153,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   variables: [],
   presets: [],
   times: [],
+  domain: null,
+  coastline: null,
+  bufferedTimes: [],
 
   variable: "temperature",
   depth: 0,
@@ -186,6 +198,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   setVariables: (variables) => set({ variables }),
   setPresets: (presets) => set({ presets }),
   setTimes: (times) => set({ times }),
+  setDomain: (domain) => set({ domain }),
+  setCoastline: (coastline) => set({ coastline }),
+  setBufferedTimes: (bufferedTimes) => set({ bufferedTimes }),
   setVariable: (variable) => set({ variable }),
   setDepth: (depth) => set({ depth }),
   setTimeIndex: (timeIndex) => set({ timeIndex }),
@@ -241,11 +256,14 @@ export const useSessionStore = create<SessionState>((set) => ({
   applyPreset: (p) =>
     set({ selection: p.bbox as BBox, depthRange: p.depthRange as [number, number] }),
 
+  // Returning to the map KEEPS the selection. The next thing anyone does after
+  // coming back up is dive again -- with another variable, another depth range,
+  // or a nudged corner -- and clearing the rectangle forced them to redraw it
+  // every time. What is cleared is everything that belonged to the block.
   reset: () =>
     set({
       phase: "map",
       blockProgress: 0,
-      selection: null,
       drawMode: false,
       drawAnchor: null,
       selectedProfile: null,
@@ -253,6 +271,7 @@ export const useSessionStore = create<SessionState>((set) => ({
       playing: false,
       sectionPoints: [],
       showSection: false,
+      bufferedTimes: [],
     }),
 }));
 

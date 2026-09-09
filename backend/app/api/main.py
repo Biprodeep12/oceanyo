@@ -26,6 +26,7 @@ from .routers import (
     matchup,
     observations,
     tiles,
+    wcs,
 )
 
 log = logging.getLogger(__name__)
@@ -118,6 +119,9 @@ def create_app() -> FastAPI:
     app.include_router(observations.router)
     app.include_router(matchup.router)
     app.include_router(tiles.router)
+    # WCS is ours, not xpublish's: MVP item 21 names WMS/WCS together, and no
+    # xpublish plugin serves coverages.
+    app.include_router(wcs.router)
     return app
 
 

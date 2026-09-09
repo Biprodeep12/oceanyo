@@ -3,10 +3,13 @@
 Interactive ocean data visualization and model–observation intelligence for the
 Indian EEZ. **SIH 26067** · Ministry of Earth Sciences / INCOIS.
 
-> **All data shown is synthetically generated.** It is CF-1.8 compliant and
-> shaped exactly like GLORYS12V1, so switching to real reanalysis is a config
-> change, not a rewrite. Nothing here is an observation or a forecast, and the
+> **The default catalog is synthetically generated.** It is CF-1.8 compliant
+> and shaped exactly like GLORYS12V1, so switching to real data is a config
+> change, not a rewrite. Nothing in it is an observation or a forecast, and the
 > UI says so on every screen.
+>
+> **There is also a fully real catalog**, and none of it needs an account:
+> `OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev`. See section 5b.
 
 ---
 
@@ -53,6 +56,10 @@ Click any float or glider in the water column:
 
 - Its **measured profile** against the model interpolated onto the same depths
 - **Bias · RMSE · MAE · correlation**, plus σ_obs, σ_model and centred RMSE
+- A **Taylor diagram** — normalised standard deviation, correlation and centred
+  RMSE as one point against a perfect-model reference, which is how operational
+  ocean-model validation is reported and what an INCOIS evaluator will
+  recognise on sight
 - Colocation is explicit: matched within a stated radius and time window
 - **QC-aware**: statistics use flag 1 (good) only; display keeps 1 and 2
 - Data mode (R / A / D) shown per profile
@@ -68,21 +75,65 @@ caught three real science bugs during development.
 - **CF-1.8** conventions end to end — `standard_name`, `units`, `axis`,
   `positive="down"`, GLORYS variable names, `hours since 1950-01-01`
 - **OGC WMS** — `GET /wms?service=WMS&version=1.3.0&request=GetCapabilities`
+- **OGC WCS 2.0.1** — `GetCapabilities`, `DescribeCoverage`, `GetCoverage`
+  returning CF NetCDF trimmed by lat/long/depth/time. Core profile only, and
+  the docs say which parts of the standard are absent rather than advertising
+  them and failing
 - **OPeNDAP** — `/opendap.dds`, `/opendap.das`
-- **21 REST endpoints**, self-documented at `/docs`
+- **22 REST endpoints**, self-documented at `/docs`
 - Mounted **fail-soft**: the API boots in seconds even if the standards stack
   fails, and `/api/health` reports what actually came up
 
 ## 5b. Real data, not just a claim
 
-`npm run fetch:real` pulls genuine data from the public GDACs -- no
-credentials -- and runs the same parsers the synthetic files use:
+Every layer can be real, and **not one of them needs an account**:
 
-| Source | Result |
-|---|---|
-| **Argo**, INCOIS DAC | 800 profiles, **0 failures**, 44,352 levels, QC `{1: 43085, 3: 64, 4: 1203}` |
-| **EGO glider**, Ifremer | 192 dives/climbs, **0 failures**, deepest 1270 m |
-| **NOAA WOA23** (`-- --woa`) | a real 0.4 MB climatology that drives the anomaly layer with no code change |
+```bash
+npm run fetch:hycom     # model      HYCOM GOFS 3.1, 1/12 deg, 40 levels
+npm run fetch:erddap    # chl+bathy  VIIRS chlorophyll, ETOPO 2022
+npm run fetch:real      # obs        Argo + EGO gliders (Ifremer GDACs)
+npm run fetch:real -- --woa         # climatology  NOAA WOA23
+
+OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
+```
+
+| Layer | Source | Result |
+|---|---|---|
+| **Model** | HYCOM GOFS 3.1 (public domain) | 1/12 deg, 40 levels to 5000 m, T/S/U/V |
+| **Chlorophyll** | VIIRS SNPP+NOAA-20, gap-filled | daily, its own grid — physics models carry no BGC |
+| **Bathymetry** | ETOPO 2022, NOAA NCEI | 30 arc-second, −4710 m to +3002 m |
+| **Argo**, INCOIS DAC | Ifremer GDAC | 800 profiles, **0 failures**, 44,352 levels |
+| **EGO glider** | Ifremer GDAC | 192 dives/climbs, **0 failures**, deepest 1270 m |
+| **Climatology** | NOAA WOA23 | 0.4 MB, drives the anomaly layer with no code change |
+
+### Real model vs real floats
+
+With the real catalog the matchup panel compares **HYCOM against Argo floats
+that were profiling in the Bay of Bengal at the time**:
+
+| | profiles | mean bias | mean RMSE |
+|---|---|---|---|
+| HYCOM vs Argo, ±36 h | 5 | **−0.002 °C** | **0.65 °C** |
+
+Getting there took fixing four things real data exposed and synthetic data
+could not:
+
+- **The matchup time window was reported but never applied** — a 2002 profile
+  was being compared against a 2024 model. Enforcing it cut 259 "matchups" to
+  the 5 that are real, and *improved* the statistics from −0.320/1.02.
+- **Real Argo reports 6552 dbar in 4100 m of water.** Pressure now gets its own
+  QC and range test, separate from the value tests.
+- **Real bathymetry disagrees with real floats by ~0.5%** — because we read
+  decibars as metres. The seabed check has a physical tolerance now.
+- **The climatology was keyed on the model's variable names**, so WOA23
+  (`thetao_mean`) against HYCOM (`water_temp`) reported no climatology at all.
+
+**HYCOM is a harder test than GLORYS12 would have been.** GLORYS calls
+temperature `thetao` — which is what our generator writes, because it was built
+to GLORYS's shape, so that swap would never have exercised name resolution at
+all. HYCOM calls it `water_temp`. It resolves through CF `standard_name` with an
+**empty `variables:` map** in the catalog. Four datasets, four grids, four
+conventions, no regridding.
 
 It failed the first time, three ways, and every one was invisible while both
 sides of the pipeline were generated here:
@@ -144,6 +195,12 @@ path, not a promise to remember.
   desktop, 5 mobile), both run against whichever catalog is configured
 - **Engine sniffed per file**, because real GDAC products are NetCDF-3 and
   generated ones are NetCDF-4
+- **`docker compose up --build`** — two services, data bind-mounted read-only
+  rather than baked into an image (authored, not run: no Docker daemon here)
+- **One Node launcher for every Python script**, because
+  `backend/.venv/Scripts/python.exe` is unrunnable by cmd.exe, which npm uses
+  on Windows — it reads the leading slash as a switch and reports
+  `'backend' is not recognized`
 
 ## What is deliberately not claimed
 

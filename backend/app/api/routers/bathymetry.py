@@ -35,7 +35,7 @@ def bathymetry(
         raise HTTPException(status_code=422, detail="bbox does not intersect the dataset")
 
     ax = cfd.axes
-    da = cfd.ds["elevation"]
+    da = cfd.ds[store.bathymetry_var]
     lon_sl = slice(box.west, box.east)
     lat_sl = slice(box.south, box.north)
     da = da.sel({ax.lon: lon_sl, ax.lat: lat_sl})
@@ -95,7 +95,7 @@ def coastline(
 
     cfd = store.bathymetry
     ax = cfd.axes
-    da = cfd.ds["elevation"]
+    da = cfd.ds[store.bathymetry_var]
     for name in (ax.lat, ax.lon):
         vals = np.asarray(da[name].values, dtype=float)
         if vals.size > 1 and vals[0] > vals[-1]:

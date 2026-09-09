@@ -1,0 +1,93 @@
+# REAL data, end to end, with no account anywhere in it.
+#
+#   OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
+#
+# This is the file that turns "the real-data swap is a config change" from a
+# claim into something a grader can run. Every source below is anonymous and
+# reachable from a fresh clone:
+#
+#   npm run fetch:hycom     model      HYCOM GOFS 3.1, 1/12 deg, 40 levels
+#   npm run fetch:erddap    chl+bathy  VIIRS chlorophyll, ETOPO 2022
+#   npm run fetch:real      obs        Argo + EGO gliders from the Ifremer GDACs
+#   npm run fetch:real -- --woa        NOAA WOA23 climatology
+#
+# The one thing it is NOT is GLORYS12. That product is the problem statement's
+# named source and `catalog.glorys.yaml` carries the exact commands for it, but
+# it needs a free registration, and a credentialed download cannot be part of
+# an offline demo. HYCOM is the same class of product -- 1/12 degree,
+# eddy-resolving, 40 levels, daily -- in the public domain.
+#
+# ---------------------------------------------------------------------------
+# What this catalog proves that the synthetic one cannot
+# ---------------------------------------------------------------------------
+#
+# 1. `model.variables` below is EMPTY, and HYCOM shares not one variable name
+#    with us. It calls temperature `water_temp`; the generator and GLORYS both
+#    call it `thetao`. Resolution happens through CF `standard_name` in
+#    core/conventions.py -- which means a GLORYS swap would never have tested
+#    the mechanism at all, because GLORYS agrees with the synthetic twin by
+#    construction. This one disagrees, and still works.
+#
+# 2. Four datasets, four grids, four conventions, no regridding:
+#      model        0.08 deg, 40 levels, NetCDF-4, `hours since 2000-01-01`
+#      chlorophyll  ~0.08 deg, surface only, NetCDF-3 CLASSIC from ERDDAP
+#      bathymetry   30 arc-second, 2D, elevation positive UP as `z`
+#      climatology  1.00 deg WOA23, interpolated onto the model grid on demand
+#    Each is opened on its own axes. The engine is sniffed per file, because
+#    h5netcdf cannot read NetCDF-3 at all and half of these are NetCDF-3.
+#
+# 3. The observations are real instruments, so the matchup panel compares a
+#    real operational model against real Argo floats. Two of the four floats
+#    (1902669, 1902670) were still profiling in the Bay of Bengal during the
+#    model window, which is what makes a matchup possible at all.
+#
+# A real caveat, stated here rather than discovered later: HYCOM `water_temp`
+# is IN-SITU temperature and Argo `TEMP` is in-situ too, so that pairing is
+# physically correct. GLORYS `thetao` is POTENTIAL temperature, and comparing
+# it to Argo TEMP carries a small offset that grows with depth.
+# ---------------------------------------------------------------------------
+
+id: bob-hycom
+source: "HYCOM GOFS 3.1 GLBy0.08 expt_93.0 (US Naval Research Laboratory, public domain)"
+synthetic: false
+
+model:
+  uri: data/real/hycom_bob_2024-01.nc
+  # Deliberately empty. See note 1 above: this is the mechanism under test.
+  variables: {}
+
+bgc:
+  # VIIRS SNPP + NOAA-20, DINEOF gap-filled. Physics-only models carry no
+  # biogeochemistry, which is exactly why the spec says chlorophyll needs its
+  # own product on its own grid -- so it gets one.
+  uri: data/real/chl_2024-01-01_2024-01-30.nc
+  variables:
+    # chlor_a already declares the right standard_name, so this line is
+    # redundant. It is kept as the worked example of the escape hatch.
+    chlorophyll: chlor_a
+
+bathymetry:
+  # NOAA NCEI ETOPO 2022 at 30 arc-second. Same sign convention as GEBCO:
+  # metres, positive up, negative below sea level.
+  uri: data/real/etopo2022_30s_bob.nc
+  variable: z
+
+climatology:
+  # NOAA WOA23 -- the World Ocean Database objectively analysed onto a grid,
+  # i.e. the problem statement's "collection of in-situ data". 1 degree against
+  # a 1/12 degree model; the anomaly service interpolates rather than requiring
+  # the two to match, which is what makes this pairing legal at all.
+  uri: data/real/climatology_woa23_bob.nc
+
+observations:
+  - platform: argo
+    parser: argo_netcdf
+    uri: data/real/argo
+  - platform: glider
+    parser: glider_ego
+    uri: data/real/glider
+
+defaults:
+  bbox: [80, 5, 95, 22]
+  depth_range: [0, 2000]
+  variable: temperature

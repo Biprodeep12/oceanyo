@@ -362,6 +362,9 @@ export default function BlockScene() {
   const time = useSessionStore(currentTime);
   const setPhase = useSessionStore((s) => s.setPhase);
   const phase = useSessionStore((s) => s.phase);
+  const times = useSessionStore((s) => s.times);
+  const timeIndex = useSessionStore((s) => s.timeIndex);
+  const setBufferedTimes = useSessionStore((s) => s.setBufferedTimes);
 
   const caps = probeGpu();
   const [bathy, setBathy] = useState<BathymetryResponse | null>(null);
@@ -446,6 +449,90 @@ export default function BlockScene() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, depthRange, variable, time]);
+
+  // Timeline ring buffer (spec 5.1 item 7).
+  //
+  // Playback steps every few hundred milliseconds; a coarse volume takes
+  // longer than that to fetch and decode, so an unbuffered timeline stutters
+  // on every step -- and the 4D animation is one of the three moments this
+  // demo is built around.
+  //
+  // Neighbours are fetched ONE AT A TIME and only after the current step has
+  // rendered. Firing them in parallel would put six requests in front of the
+  // one the user is actually waiting for, which makes the visible frame slower
+  // in the name of making the next one faster.
+  const travel = useRef(1);
+  const lastIndex = useRef(0);
+  //! Whether the timeline has actually been used yet.
+  const scrubbed = useRef(false);
+  useEffect(() => {
+    if (timeIndex !== lastIndex.current) {
+      travel.current = timeIndex > lastIndex.current ? 1 : -1;
+      scrubbed.current = true;
+    }
+    lastIndex.current = timeIndex;
+  }, [timeIndex]);
+
+  useEffect(() => {
+    if (!selection || !volume || times.length < 2) return;
+    // Nothing is prefetched until the timeline is actually in motion.
+    //
+    // "Prefetch in the direction of travel" presumes travel. Firing on arrival
+    // in the block spends four volume fetches, four worker decodes and four
+    // 3D-texture uploads on a user who may never touch the scrubber -- and it
+    // spends them at the worst possible moment, while the first frame is still
+    // being ray-marched. Measured on a software renderer that made the block
+    // unclickable for tens of seconds.
+    if (!scrubbed.current && !playing) return;
+    let cancelled = false;
+
+    // Ahead in the direction of travel, and one step back, so reversing
+    // does not start from an empty buffer.
+    const dir = travel.current;
+    const offsets = [dir, 2 * dir, 3 * dir, -dir];
+
+    (async () => {
+      for (const off of offsets) {
+        if (cancelled) return;
+        const i = timeIndex + off;
+        if (i < 0 || i >= times.length) continue;
+        const opts = {
+          variable,
+          bbox: selection,
+          depthRange,
+          time: times[i],
+          res: "coarse" as const,
+        };
+        const key = volumeKey({ ...opts, res: "coarse" });
+        if (getCached(key)) continue;
+        try {
+          await loadVolume(key, api.volumeUrl(opts));
+        } catch {
+          /* a missed prefetch costs a slower step, never correctness */
+        }
+        if (cancelled) return;
+        // Tell the scrubber what is actually buffered.
+        setBufferedTimes(
+          times.filter((t) =>
+            getCached(
+              volumeKey({
+                variable,
+                bbox: selection,
+                depthRange,
+                time: t,
+                res: "coarse",
+              }),
+            ),
+          ),
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, depthRange, variable, timeIndex, times, volume, playing]);
 
   // Frame the block to the viewport rather than to a fixed camera position.
   //

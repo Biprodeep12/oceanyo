@@ -24,12 +24,51 @@ from .obs.registry import REGISTRY, ProfileRef, load_builtin_parsers
 log = logging.getLogger(__name__)
 
 
+
+#: standard_names that mean "height of the solid surface", in the order we
+#: trust them. GEBCO and ETOPO both store elevation positive UP with negative
+#: values below sea level, which is what the seabed mesh expects.
+_BATHY_STANDARD_NAMES = (
+    "height_above_mean_sea_level",
+    "altitude",
+    "surface_altitude",
+)
+_BATHY_FALLBACK_NAMES = ("elevation", "z", "Band1", "altitude", "topo")
+
+
+def resolve_bathymetry_var(ds, declared: str | None) -> str:
+    """Find the elevation variable in a bathymetry file.
+
+    The catalog carries a `variable:` key for exactly this, but relying on it
+    alone means every new source needs a config edit; relying on the name
+    `elevation` alone means only GEBCO works, and ETOPO 2022 calls it `z`.
+    So: the catalog wins, then CF, then the names these products actually use,
+    then -- if the file holds exactly one field -- that field.
+    """
+    if declared and declared in ds.data_vars:
+        return declared
+    for name, da in ds.data_vars.items():
+        if str(da.attrs.get("standard_name", "")) in _BATHY_STANDARD_NAMES:
+            return str(name)
+    for cand in _BATHY_FALLBACK_NAMES:
+        if cand in ds.data_vars:
+            return cand
+    if len(ds.data_vars) == 1:
+        return str(next(iter(ds.data_vars)))
+    raise ValueError(
+        f"cannot identify the elevation variable among {list(ds.data_vars)}; "
+        "name it with `bathymetry.variable` in the catalog"
+    )
+
 class DataStore:
     def __init__(self, catalog: Catalog) -> None:
         self.catalog = catalog
         self.model: CFDataset | None = None
         self.bgc: CFDataset | None = None
         self.bathymetry: CFDataset | None = None
+        #: Raw variable holding elevation in the bathymetry file. The
+        #: catalog may name it; otherwise it is resolved on open.
+        self.bathymetry_var: str = "elevation"
         self.climatology: CFDataset | None = None
         self._refs: list[ProfileRef] = []
         self._lock = threading.Lock()
@@ -66,7 +105,16 @@ class DataStore:
                     ref.uri, source=cat.source, synthetic=cat.synthetic,
                     var_map=ref.variables, engine=ref.engine,
                 ))
-                log.info("%s: %s", attr, ref.uri.name)
+                if attr == "bathymetry" and self.bathymetry is not None:
+                    self.bathymetry_var = resolve_bathymetry_var(
+                        self.bathymetry.ds, ref.variable
+                    )
+                    log.info(
+                        "bathymetry: %s (elevation variable %r)",
+                        ref.uri.name, self.bathymetry_var,
+                    )
+                else:
+                    log.info("%s: %s", attr, ref.uri.name)
             except Exception as exc:
                 # An optional product missing must not stop the platform.
                 log.warning("optional dataset %r unavailable (%s): %s", attr, ref.uri, exc)

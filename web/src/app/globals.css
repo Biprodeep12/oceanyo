@@ -242,6 +242,12 @@ body {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Selected state for buttons used as tabs, matching .ze-row and .ze-icon-btn
+   so a chosen tab reads the same as a chosen layer. */
+.ze-btn[data-active="true"] {
+  background: var(--ze-active);
+  color: var(--ze-accent);
+}
 .ze-btn-primary {
   background: var(--ze-accent);
   color: #06231f;

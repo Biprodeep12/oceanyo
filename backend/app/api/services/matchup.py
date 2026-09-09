@@ -31,6 +31,7 @@ import warnings
 from typing import Literal
 
 import numpy as np
+import pandas as pd
 
 from ...core.cf_adapter import CFDataset
 from ...core.conventions import CANONICAL
@@ -104,8 +105,33 @@ def compute_matchup(
         profile.lon + dlon, profile.lat + dlat,
     ).clamp_to(cfd.bbox())
 
+    # The TIME window, actually enforced.
+    #
+    # `CFDataset.select` snaps to the nearest available step, which is right
+    # when a profile falls inside the model run and catastrophic when it does
+    # not: an Argo profile from 2002 was being compared against a January 2024
+    # analysis and reporting a confident sub-degree bias. Nothing in the
+    # synthetic catalog could show this, because the generator samples its
+    # floats from the model's own timesteps -- every profile is in window by
+    # construction. Real floats outlive real model subsets.
+    #
+    # `window_hours` was reported in the result all along. It was never applied.
+    in_window = True
+    if cfd.axes.time is not None:
+        nearest = pd.Timestamp(cfd.nearest_time(profile.time))
+        asked = pd.Timestamp(profile.time)
+        if asked.tzinfo is not None:
+            asked = asked.tz_convert(None)
+        gap_h = abs((nearest - asked).total_seconds()) / 3600.0
+        in_window = gap_h <= window_hours
+        if not in_window:
+            log.debug(
+                "%s %s: nearest model step is %.1f h away, window is %.1f h",
+                profile.platform, profile.id, gap_h, window_hours,
+            )
+
     model_vals = np.full(obs_depth.shape, np.nan)
-    if not box.is_empty() and obs_depth.size:
+    if in_window and not box.is_empty() and obs_depth.size:
         values, coords = cfd.select(variable, bbox=box, time=profile.time)
         # Mean over the colocation neighbourhood, per model level. Levels that
         # lie entirely below the seabed are legitimately all-NaN, so the

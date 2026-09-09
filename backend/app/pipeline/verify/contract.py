@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ...api.datastore import resolve_bathymetry_var
 from ...core.catalog import Catalog
 from ...core.cf_adapter import CFDataset
 from ...core.geometry import BBox, DepthRange
@@ -126,8 +127,12 @@ def run_contract(catalog_path: Path) -> bool:
         try:
             bathy = CFDataset.open(cat.bathymetry.uri, source=cat.source,
                                    synthetic=cat.synthetic, engine=cat.bathymetry.engine)
-            c.check("elevation" in bathy.ds, "bathymetry: elevation present")
-            elev = np.asarray(bathy.ds["elevation"].values)
+            # GEBCO calls it `elevation`, ETOPO 2022 calls it `z`. The same
+            # resolver the API uses, so the contract and the server cannot
+            # disagree about which field is the seabed.
+            bvar = resolve_bathymetry_var(bathy.ds, getattr(cat.bathymetry, "variable", None))
+            c.check(bvar in bathy.ds, "bathymetry: elevation variable resolved", bvar)
+            elev = np.asarray(bathy.ds[bvar].values)
             c.check(float(np.nanmin(elev)) < 0, "bathymetry: has water below sea level",
                     f"min {np.nanmin(elev):.0f} m")
         except Exception as exc:
@@ -152,8 +157,31 @@ def run_contract(catalog_path: Path) -> bool:
             c.check(False, f"obs: parser {src.parser!r} registered", str(exc))
             continue
         refs = parser.discover(Path(src.uri), BBox(*box.as_list()), None, None)
-        c.check(len(refs) > 0, f"obs: {src.platform} has profiles in the demo bbox",
-                f"{len(refs)} found")
+        if refs:
+            c.check(True, f"obs: {src.platform} has profiles in the demo bbox",
+                    f"{len(refs)} found")
+        else:
+            # A platform with data somewhere but none HERE is a fact about
+            # ocean observing, not a defect. There is not one glider deployment
+            # in the Bay of Bengal in the entire EGO GDAC -- 131 of 1115 are
+            # Indian Ocean, nearly all Mozambique Channel -- so failing the
+            # contract on it would mean the real catalog can never pass, and a
+            # contract that cannot pass stops being read. What IS a defect is a
+            # parser that finds nothing anywhere.
+            anywhere = parser.discover(Path(src.uri), None, None, None)
+            c.check(
+                len(anywhere) > 0,
+                f"obs: {src.platform} parser finds profiles",
+                f"{len(anywhere)} outside the demo bbox, 0 inside"
+                if anywhere
+                else "none found at all",
+            )
+            if anywhere:
+                log.warning(
+                    "  NOTE  %s has %d profiles but none in the demo bbox",
+                    src.platform, len(anywhere),
+                )
+            refs = anywhere
         if refs:
             p = parser.load(refs[0])
             c.check(len(p.depth) > 0, f"obs: {src.platform} profile has levels",
@@ -173,12 +201,36 @@ def run_contract(catalog_path: Path) -> bool:
                 engine=cat.bathymetry.engine,
             )
             b_lons, b_lats = bathy_ds.lons, bathy_ds.lats
-            b_elev = np.asarray(bathy_ds.ds["elevation"].values, dtype=float)
+            b_var = resolve_bathymetry_var(
+                bathy_ds.ds, getattr(cat.bathymetry, "variable", None)
+            )
+            b_elev = np.asarray(bathy_ds.ds[b_var].values, dtype=float)
+
+            # Deepest water within ~0.1 degrees, not the single nearest cell.
+            #
+            # The question this check asks is "could an instrument at this
+            # position have sampled this deep", and one cell of a 30 arc-second
+            # grid cannot answer it on a continental slope, where the seabed
+            # drops a kilometre inside two cells. A float's reported position is
+            # its last GPS fix, not where the profile was taken; it drifts while
+            # it ascends. Against synthetic data -- floats placed on the
+            # synthetic seabed by construction -- one cell was exact and the
+            # difference never showed. Against a real float over the real Indian
+            # slope it flagged three perfectly good profiles.
+            #
+            # A profile is suspicious only if it is deeper than the deepest
+            # water anywhere it could plausibly have been.
+            pad = 0.1
 
             def _seabed(lon: float, lat: float) -> float:
-                i = int(np.clip(np.searchsorted(b_lats, lat) - 1, 0, len(b_lats) - 1))
-                j = int(np.clip(np.searchsorted(b_lons, lon) - 1, 0, len(b_lons) - 1))
-                return float(-b_elev[i, j])
+                lo_i = int(np.clip(np.searchsorted(b_lats, lat - pad) - 1, 0, len(b_lats) - 1))
+                hi_i = int(np.clip(np.searchsorted(b_lats, lat + pad) + 1, 1, len(b_lats)))
+                lo_j = int(np.clip(np.searchsorted(b_lons, lon - pad) - 1, 0, len(b_lons) - 1))
+                hi_j = int(np.clip(np.searchsorted(b_lons, lon + pad) + 1, 1, len(b_lons)))
+                window = b_elev[lo_i:hi_i, lo_j:hi_j]
+                if window.size == 0:
+                    return float("inf")
+                return float(-np.nanmin(window))
 
             offenders: list[str] = []
             checked = 0
@@ -200,7 +252,18 @@ def run_contract(catalog_path: Path) -> bool:
                     if not depths:
                         continue
                     checked += 1
-                    if max(depths) > _seabed(prof.lon, prof.lat):
+                    floor = _seabed(prof.lon, prof.lat)
+                    # Tolerance, and it is a physical quantity rather than a
+                    # fudge: profile "depth" here IS pressure in decibars, which
+                    # is how every profiling float reports and how the GDAC
+                    # stores it. One decibar is about 0.99 m of seawater near
+                    # the surface and rather less at depth, so reading dbar as
+                    # metres OVERSTATES depth by 1-2% at 2000 m -- some 20-40 m.
+                    # A real float that stopped 11 m "below" a 2121 m seabed is
+                    # measuring correctly; the conversion we did not do is the
+                    # error. Add the float's own position uncertainty and 2% is
+                    # tight. A float 500 m below the seabed still fails.
+                    if max(depths) > floor + max(50.0, 0.02 * floor):
                         offenders.append(f"{prof.platform}:{prof.id}")
             c.check(
                 not offenders,

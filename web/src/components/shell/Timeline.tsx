@@ -63,6 +63,7 @@ export default function Timeline() {
   const playing = useSessionStore((s) => s.playing);
   const setTimeIndex = useSessionStore((s) => s.setTimeIndex);
   const toggle = useSessionStore((s) => s.toggle);
+  const bufferedTimes = useSessionStore((s) => s.bufferedTimes);
 
   // Playback lives here, next to the control that starts it.
   useEffect(() => {
@@ -88,6 +89,12 @@ export default function Timeline() {
     setTimeIndex(Math.min(times.length - 1, Math.max(0, timeIndex + delta)));
 
   const progress = times.length > 1 ? timeIndex / (times.length - 1) : 0;
+
+  // Which steps are already decoded and on the GPU (spec 5.1 item 7). Showing
+  // it is the difference between "the timeline is stuttering" and "the
+  // timeline has not buffered that far yet" -- the same reason a video
+  // scrubber shows its buffer.
+  const buffered = new Set(bufferedTimes);
 
   return (
     <div className="ze-panel pointer-events-auto relative flex flex-1 items-stretch justify-center gap-1 overflow-hidden pl-1 pr-2 md:flex-none">
@@ -144,8 +151,21 @@ export default function Timeline() {
         className="pointer-events-none absolute inset-x-0 bottom-0 h-[3px]"
         style={{ background: "rgba(255,255,255,0.10)" }}
       >
+        {times.map((t, i) =>
+          buffered.has(t) ? (
+            <span
+              key={t}
+              className="absolute top-0 h-full"
+              style={{
+                left: `${(i / Math.max(times.length - 1, 1)) * 100}%`,
+                width: `${100 / Math.max(times.length - 1, 1)}%`,
+                background: "rgba(255,255,255,0.30)",
+              }}
+            />
+          ) : null,
+        )}
         <div
-          className="h-full"
+          className="absolute top-0 h-full"
           style={{ width: `${progress * 100}%`, background: "var(--ze-accent)" }}
         />
       </div>

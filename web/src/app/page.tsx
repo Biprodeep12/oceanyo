@@ -7,6 +7,7 @@ import HoverBubble from "@/components/shell/HoverBubble";
 import IconRail from "@/components/shell/IconRail";
 import LayersPanel from "@/components/shell/LayersPanel";
 import Legend from "@/components/shell/Legend";
+import LocatorInset from "@/components/shell/LocatorInset";
 import Logo from "@/components/shell/Logo";
 import StatusBar from "@/components/shell/StatusBar";
 import Timeline from "@/components/shell/Timeline";
@@ -55,6 +56,16 @@ export default function Page() {
         st.setPresets(presets);
         const meta = await api.metadata(variables[0]?.variable ?? "temperature", ac.signal);
         st.setTimes(meta.time);
+        // The full extent this catalog serves, taken from the axes themselves
+        // rather than hardcoded, so the locator is right for any region.
+        if (meta.lon?.length && meta.lat?.length) {
+          st.setDomain([
+            Math.min(...meta.lon),
+            Math.min(...meta.lat),
+            Math.max(...meta.lon),
+            Math.max(...meta.lat),
+          ]);
+        }
       } catch (e) {
         if ((e as Error).name !== "AbortError") console.error(e);
       }
@@ -138,7 +149,10 @@ export default function Page() {
       <div className="pointer-events-auto absolute left-2 top-2 z-30 md:left-3 md:top-3">
         <Logo />
       </div>
-      <div className="pointer-events-auto z-40 md:absolute md:left-3 md:top-[78px] md:z-30 md:max-h-[calc(100dvh-190px)] md:overflow-y-auto">
+      {/* ze-scroll, not a bare overflow: with the block layers expanded this
+          panel is taller than a laptop viewport, and the platform's default
+          scrollbar is a light chunky bar straight through the dark panel. */}
+      <div className="ze-scroll pointer-events-auto z-40 md:absolute md:left-3 md:top-[78px] md:z-30 md:max-h-[calc(100dvh-190px)] md:overflow-y-auto">
         <LayersPanel />
       </div>
 
@@ -204,6 +218,13 @@ export default function Page() {
             {touch ? "tap" : "click"} a float
           </span>
         )}
+      </div>
+
+      {/* Bottom-right, clear of BOTH the status badges and MapLibre's own
+          scale bar, which also lives in this corner. 52px was enough for the
+          badges alone and put the inset straight through the scale. */}
+      <div className="pointer-events-auto absolute bottom-[104px] right-3 z-20 hidden md:block">
+        <LocatorInset />
       </div>
 
       <HoverBubble />
