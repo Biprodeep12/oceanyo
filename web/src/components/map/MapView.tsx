@@ -21,11 +21,16 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 import { api } from "@/lib/api/client";
 import type { BBox } from "@/lib/api/types";
-import { currentTime, useSessionStore } from "@/state/useSessionStore";
+import { cachedGrid, loadGrid, probeKey, sampleGrid } from "@/lib/loading/fieldProbe";
+import { shortLabel } from "@/lib/variableLabels";
+import { registerViewport, releaseViewport } from "@/lib/viewport";
+import { usePointer } from "@/state/usePointer";
+import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
 
 const FIELD_SOURCE = "ocean-field";
 const FIELD_LAYER = "ocean-field-layer";
+const LAND_SOURCE = "land";
 const ANOM_SOURCE = "ocean-anomaly";
 const ANOM_LAYER = "ocean-anomaly-layer";
 const OBS_SOURCE = "observations";
@@ -141,6 +146,8 @@ export default function MapView({ visible }: { visible: boolean }) {
   const showAnomaly = useSessionStore((s) => s.showAnomaly);
   const anomalyLimit = useSessionStore((s) => s.anomalyLimit);
   const climatologyVars = useSessionStore((s) => s.health?.climatology);
+  const showObservations = useSessionStore((s) => s.showObservations);
+  const varMeta = useSessionStore(currentVariable);
   const time = useSessionStore(currentTime);
   const display = useDisplaySettings();
   const setSelection = useSessionStore((s) => s.setSelection);
@@ -158,8 +165,10 @@ export default function MapView({ visible }: { visible: boolean }) {
     map.current = m;
     // debug handle (harmless in production, used by scripts/mapdbg.mjs)
     (window as unknown as { __map?: MLMap }).__map = m;
-    m.addControl(new maplibregl.NavigationControl({ showCompass: true }), "bottom-right");
-    m.addControl(new maplibregl.ScaleControl({ maxWidth: 120 }), "bottom-left");
+    // No NavigationControl: zoom lives in the right-hand rail, which also
+    // drives the 3D camera in block mode. The scale bar stays -- reimplementing
+    // Mercator scale correctly at every latitude is not worth the pixels saved.
+    m.addControl(new maplibregl.ScaleControl({ maxWidth: 110 }), "bottom-right");
 
     m.on("load", () => {
       m.addSource("graticule", { type: "geojson", data: graticule() });
@@ -168,6 +177,26 @@ export default function MapView({ visible }: { visible: boolean }) {
         type: "line",
         source: "graticule",
         paint: { "line-color": "#1d3546", "line-width": 1 },
+      });
+
+      // Land under the data, so the field reads as being in a place. Added
+      // after load and tolerant of failure: it is context, never a dependency.
+      m.addSource(LAND_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: "land-fill",
+        type: "fill",
+        source: LAND_SOURCE,
+        filter: ["==", ["geometry-type"], "Polygon"],
+        paint: { "fill-color": "#1d2b23", "fill-opacity": 0.95 },
+      });
+      m.addLayer({
+        id: "land-line",
+        type: "line",
+        source: LAND_SOURCE,
+        paint: { "line-color": "#3d5647", "line-width": 1.1 },
       });
 
       m.addSource(FIELD_SOURCE, {
@@ -324,6 +353,23 @@ export default function MapView({ visible }: { visible: boolean }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- coastline, fetched once ---
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const ac = new AbortController();
+    api
+      .coastline(ac.signal)
+      .then((fc) => {
+        const src = m.getSource(LAND_SOURCE) as maplibregl.GeoJSONSource | undefined;
+        src?.setData(fc as GeoJSON.FeatureCollection);
+      })
+      .catch(() => {
+        /* context only: a map without it is still a working map */
+      });
+    return () => ac.abort();
+  }, [ready]);
+
   // --- field tiles follow variable / depth / time ---
   useEffect(() => {
     const m = map.current;
@@ -355,6 +401,7 @@ export default function MapView({ visible }: { visible: boolean }) {
   useEffect(() => {
     const m = map.current;
     if (!m || !ready) return;
+    m.setLayoutProperty("obs-circles", "visibility", showObservations ? "visible" : "none");
     const src = m.getSource(OBS_SOURCE) as maplibregl.GeoJSONSource | undefined;
     if (!src) return;
     src.setData({
@@ -364,7 +411,7 @@ export default function MapView({ visible }: { visible: boolean }) {
         properties: { ...f.properties, err: errorById[f.properties.id] ?? -1 },
       })),
     } as GeoJSON.FeatureCollection);
-  }, [observations, errorById, ready]);
+  }, [observations, errorById, ready, showObservations]);
 
   // --- selection rectangle ---
   useEffect(() => {
@@ -373,6 +420,81 @@ export default function MapView({ visible }: { visible: boolean }) {
     const src = m.getSource(SEL_SOURCE) as maplibregl.GeoJSONSource | undefined;
     src?.setData(selectionGeoJSON(selection) as GeoJSON.FeatureCollection);
   }, [selection, ready]);
+
+  // --- the rail owns zoom, and this is what it drives in map mode ---
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !visible) return;
+    const handlers = {
+      zoomIn: () => m.zoomIn({ duration: 220 }),
+      zoomOut: () => m.zoomOut({ duration: 220 }),
+      reset: () => m.easeTo({ center: [88, 14] as [number, number], zoom: 4.6, duration: 500 }),
+    };
+    registerViewport(handlers);
+    return () => releaseViewport(handlers);
+  }, [visible, ready]);
+
+  // --- pointer readout: one grid per selection, sampled locally ---
+  //
+  // Fetching a value per pointer move would be thousands of round trips. One
+  // decimated grid covering the whole extent is pulled when the variable,
+  // depth or time changes, and every move after that is a local bilinear
+  // sample.
+  const probe = probeKey(variable, depth, time);
+  useEffect(() => {
+    if (!visible) return;
+    void loadGrid(probe, { variable, depth, time, res: 160 });
+  }, [probe, variable, depth, time, visible]);
+
+  useEffect(() => {
+    if (!visible) usePointer.getState().clear();
+  }, [visible]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+
+    // Coalesced to one update per animation frame: a mousemove handler that
+    // writes on every event fires far more often than the screen refreshes.
+    let frame = 0;
+    let pending: { x: number; y: number; lng: number; lat: number } | null = null;
+
+    const flush = () => {
+      frame = 0;
+      if (!pending) return;
+      const grid = cachedGrid(probe);
+      const value = grid ? sampleGrid(grid, pending.lng, pending.lat) : null;
+      usePointer.getState().set({
+        x: pending.x,
+        y: pending.y,
+        lon: pending.lng,
+        lat: pending.lat,
+        value,
+        units: grid?.units ?? varMeta?.units ?? "",
+        label: shortLabel(variable, varMeta?.longName),
+        visible: true,
+      });
+    };
+
+    const onMove = (ev: MapMouseEvent) => {
+      pending = {
+        x: ev.point.x,
+        y: ev.point.y,
+        lng: ev.lngLat.lng,
+        lat: ev.lngLat.lat,
+      };
+      if (!frame) frame = requestAnimationFrame(flush);
+    };
+    const onOut = () => usePointer.getState().clear();
+
+    m.on("mousemove", onMove);
+    m.on("mouseout", onOut);
+    return () => {
+      m.off("mousemove", onMove);
+      m.off("mouseout", onOut);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [probe, variable, varMeta, ready]);
 
   // The map canvas stays mounted for the whole session and is only faded.
   // Remounting a WebGL context mid-animation is a guaranteed stutter.
@@ -384,8 +506,8 @@ export default function MapView({ visible }: { visible: boolean }) {
   // height 0, and the map rendered nothing at all.
   return (
     <div
-      className="absolute inset-0 transition-opacity duration-300"
-      style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none" }}
+      className={`absolute inset-0 transition-opacity duration-300${visible ? "" : " ze-inert"}`}
+      style={{ opacity: visible ? 1 : 0 }}
     >
       <div ref={container} className="h-full w-full" />
     </div>

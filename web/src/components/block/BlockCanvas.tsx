@@ -21,8 +21,8 @@ export default function BlockCanvas({ visible }: { visible: boolean }) {
 
   return (
     <div
-      className="absolute inset-0 transition-opacity duration-500"
-      style={{ opacity: visible ? 1 : 0, pointerEvents: visible ? "auto" : "none" }}
+      className={`absolute inset-0 transition-opacity duration-500${visible ? "" : " ze-inert"}`}
+      style={{ opacity: visible ? 1 : 0 }}
     >
       <Canvas
         camera={{ position: [2.4, 1.9, 2.8], fov: 45, near: 0.01, far: 100 }}

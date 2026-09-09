@@ -40,6 +40,27 @@ page.on("requestfailed", (r) =>
   failedRequests.push(`${r.method()} ${r.url()} :: ${r.failure()?.errorText}`),
 );
 
+/**
+ * Screenshots are diagnostics, not assertions, and this runs on SwiftShader
+ * where a full-viewport ray-march takes seconds PER FRAME -- the default 30 s
+ * capture timeout expires on a page that is perfectly healthy. The elapsed
+ * time is printed so a genuine hang still shows up as one.
+ */
+const shot = async (name) => {
+  const t0 = Date.now();
+  await page.screenshot({ path: `${OUT}/${name}`, timeout: 90000 });
+  const ms = Date.now() - t0;
+  if (ms > 8000) console.log(`
+      (${name} took ${(ms / 1000).toFixed(1)}s -- software renderer)`);
+};
+
+/** Presets live behind the Regions button in the right-hand rail. */
+const pickRegion = async (name) => {
+  await page.getByRole("button", { name: "Regions", exact: true }).click();
+  await page.getByRole("button", { name, exact: true }).click();
+  await page.waitForTimeout(500);
+};
+
 const step = async (name, fn) => {
   process.stdout.write(`  ${name.padEnd(38)}`);
   try {
@@ -74,13 +95,13 @@ await step("WebGL2 available", async () => {
 
 await step("catalog loaded (variables listed)", async () => {
   await page.waitForFunction(
-    () => document.querySelectorAll("select option").length >= 4,
+    () => document.querySelectorAll('input[type="radio"][name="variable"]').length >= 4,
     { timeout: 30000 },
   );
 });
 
 await step("synthetic badge present", async () => {
-  await page.getByText("Synthetic data").first().waitFor({ timeout: 10000 });
+  await page.getByText("SYNTHETIC", { exact: true }).first().waitFor({ timeout: 10000 });
 });
 
 await step("map canvas rendered", async () => {
@@ -89,17 +110,55 @@ await step("map canvas rendered", async () => {
 
 await step("screenshot: map mode", async () => {
   await page.waitForTimeout(3500); // let tiles settle
-  await page.screenshot({ path: `${OUT}/01-map.png` });
+  await shot("01-map.png");
+});
+
+await step("pointer readout shows a value", async () => {
+  const box = await page.locator("canvas.maplibregl-canvas").boundingBox();
+  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.5);
+  await page.waitForTimeout(1200);
+  const bubble = await page
+    .getByTestId("hover-bubble")
+    .textContent()
+    .catch(() => null);
+  if (!bubble || !/-?\d+\.\d\d/.test(bubble)) {
+    throw new Error(`no sampled value under the cursor: ${bubble ?? "no bubble"}`);
+  }
+  const coords = (await page.getByTestId("coords").textContent()) ?? "";
+  if (!/\d+°\s\d+'\s[NS]/.test(coords)) {
+    throw new Error(`no coordinate readout: ${JSON.stringify(coords)}`);
+  }
+  console.log(`
+      cursor: ${bubble.replace(/\s+/g, " ").trim()}  @ ${coords.trim()}`);
+  process.stdout.write(" ".repeat(40));
+  await shot("13-pointer.png");
+});
+
+await step("shift+drag draws a region", async () => {
+  // Guards a bug that nothing else here could see: the hidden 3D canvas sat on
+  // top of the map with pointer-events re-enabled by its own container, so the
+  // map received no mouse events at all. Everything still LOOKED right,
+  // because the preset buttons bypass the map entirely.
+  const box = await page.locator("canvas.maplibregl-canvas").boundingBox();
+  await page.keyboard.down("Shift");
+  await page.mouse.move(box.x + 700, box.y + 300);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 900, box.y + 470, { steps: 12 });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+  await page.waitForTimeout(600);
+  if (await page.getByRole("button", { name: "Dive" }).isDisabled()) {
+    throw new Error("Dive still disabled: the map never received the drag");
+  }
 });
 
 await step("select preset region", async () => {
   // exact: there is also a "Central Bay of Bengal" preset.
-  await page.getByRole("button", { name: "Bay of Bengal", exact: true }).click();
-  await page.waitForTimeout(600);
+  await pickRegion("Bay of Bengal");
 });
 
 await step("screenshot: region selected", async () => {
-  await page.screenshot({ path: `${OUT}/02-selected.png` });
+  await shot("02-selected.png");
 });
 
 await step("dive -> block mode", async () => {
@@ -113,7 +172,7 @@ await step("dive -> block mode", async () => {
 
 await step("screenshot: block mode", async () => {
   await page.waitForTimeout(3000);
-  await page.screenshot({ path: `${OUT}/03-block.png` });
+  await shot("03-block.png");
 });
 
 await step("block canvas is drawing pixels", async () => {
@@ -158,7 +217,7 @@ await step("matchup statistics shown", async () => {
   console.log(`
       reported bias: ${m ? m[1] : "?"}`);
   process.stdout.write(" ".repeat(40));
-  await page.screenshot({ path: `${OUT}/05-matchup.png` });
+  await shot("05-matchup.png");
 });
 
 await step("isosurface renders", async () => {
@@ -171,7 +230,7 @@ await step("isosurface renders", async () => {
     .catch(() => false);
   if (!ok) throw new Error("no successful isosurface response");
   await page.waitForTimeout(2500);
-  await page.screenshot({ path: `${OUT}/06-isosurface.png` });
+  await shot("06-isosurface.png");
   await page.getByLabel("Isosurface").uncheck();
 });
 
@@ -183,13 +242,13 @@ await step("current particles advecting", async () => {
   if (!meta.length || !png.length) {
     throw new Error(`currents meta=${meta.length} png=${png.length}`);
   }
-  await page.screenshot({ path: `${OUT}/07-particles.png` });
+  await shot("07-particles.png");
 });
 
 await step("colorbar drives tiles", async () => {
   await page.getByRole("button", { name: "Back to map" }).click();
   await page.waitForTimeout(900);
-  await page.getByRole("button", { name: /Edit colour scale/ }).click();
+  await page.getByRole("button", { name: "Edit colour scale" }).click();
   const min = page.locator("input[type=number]").first();
   const max = page.locator("input[type=number]").nth(1);
   await min.fill("24");
@@ -199,7 +258,7 @@ await step("colorbar drives tiles", async () => {
   await page.waitForTimeout(2500);
   const scoped = requests.filter((u) => u.includes("vmin=24") && u.includes("vmax=30"));
   if (!scoped.length) throw new Error("no tiles requested with the edited range");
-  await page.screenshot({ path: `${OUT}/09-colorbar.png` });
+  await shot("09-colorbar.png");
 });
 
 await step("anomaly layer vs climatology", async () => {
@@ -214,23 +273,23 @@ await step("anomaly layer vs climatology", async () => {
     .catch(() => false);
   if (!ok) throw new Error("no successful anomaly tile response");
   await page.waitForTimeout(2000);
-  await page.screenshot({ path: `${OUT}/10-anomaly.png` });
+  await shot("10-anomaly.png");
 
   // The toggle outlives the variable. Switching to one the catalog has no
   // climatology for must stop the layer silently, not keep requesting tiles
   // that correctly 404.
-  await page.locator("select").first().selectOption("chlorophyll");
+  await page.getByLabel("Chlorophyll", { exact: true }).check();
   await page.waitForTimeout(2500);
   const stray = requests.filter((u) => u.includes("/tiles/anomaly/chlorophyll"));
   if (stray.length) throw new Error(`${stray.length} anomaly tiles without a climatology`);
 
-  await page.locator("select").first().selectOption("temperature");
+  await page.getByLabel("Temperature", { exact: true }).check();
   await page.waitForTimeout(600);
   await page.getByLabel("Show anomaly").uncheck();
 });
 
 await step("glider tracks in the water column", async () => {
-  await page.getByRole("button", { name: "East of Sri Lanka", exact: true }).click();
+  await pickRegion("East of Sri Lanka");
   await page.getByRole("button", { name: "Dive" }).click();
   await page.waitForFunction(() => document.body.innerText.includes("drag to orbit"), {
     timeout: 45000,
@@ -239,7 +298,7 @@ await step("glider tracks in the water column", async () => {
   if (!requests.some((u) => u.includes("/api/profile/glider"))) {
     throw new Error("no glider trajectory fetched");
   }
-  await page.screenshot({ path: `${OUT}/11-gliders.png` });
+  await shot("11-gliders.png");
 });
 
 await step("cross-section curtain", async () => {
@@ -285,13 +344,13 @@ await step("cross-section curtain", async () => {
   if (!json.length || !png.length) {
     throw new Error(`section json=${json.length} png=${png.length}`);
   }
-  await page.screenshot({ path: `${OUT}/12-section.png` });
+  await shot("12-section.png");
 });
 
 await step("back to map", async () => {
   await page.getByRole("button", { name: "Back to map" }).click();
   await page.waitForTimeout(1200);
-  await page.screenshot({ path: `${OUT}/04-back.png` });
+  await shot("04-back.png");
 });
 
 console.log("\nconsole errors:", errors.length);

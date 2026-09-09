@@ -59,6 +59,8 @@ export interface SessionState {
   showParticles: boolean;
   showIsosurface: boolean;
   isoLevel: number;
+  /** Instrument markers on the map and in the block. */
+  showObservations: boolean;
   /** Climatology anomaly overlay in map mode. */
   showAnomaly: boolean;
   /** Colour saturation of the anomaly layer, in standard deviations. */
@@ -110,6 +112,7 @@ export interface SessionState {
       | "showSlice"
       | "showParticles"
       | "showIsosurface"
+      | "showObservations"
       | "showAnomaly"
       | "showSection"
       | "playing",
@@ -145,6 +148,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   showParticles: true,
   showIsosurface: false,
   isoLevel: 20,
+  showObservations: true,
   showAnomaly: false,
   anomalyLimit: 3,
   showSection: false,

@@ -215,3 +215,17 @@ export interface SectionResponse {
   coverage: number;
   values: (number | null)[][];
 }
+
+/** GET /api/slice -- one depth level as a JSON grid. */
+export interface SliceResponse {
+  variable: string;
+  units: string;
+  depth: number;
+  time: string;
+  lat: number[];
+  lon: number[];
+  shape: [number, number];
+  vmin: number;
+  vmax: number;
+  values: (number | null)[][];
+}

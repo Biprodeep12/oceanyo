@@ -16,6 +16,7 @@ import {
   toWorld,
 } from "@/lib/geo/blockSpace";
 import { getCached, loadVolume, volumeKey } from "@/lib/loading/volumeStore";
+import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
@@ -445,6 +446,29 @@ export default function BlockScene() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, depthRange, variable, time]);
+
+  // The same rail buttons that zoom the map dolly this camera, so the control
+  // means the same thing in both modes. Dollying along the view direction
+  // rather than changing FOV keeps the perspective of the block stable.
+  useEffect(() => {
+    const dolly = (factor: number) => {
+      const target = new THREE.Vector3(0, 0, 0);
+      const offset = camera.position.clone().sub(target);
+      const len = THREE.MathUtils.clamp(offset.length() * factor, 0.9, 9);
+      camera.position.copy(target).add(offset.setLength(len));
+      camera.updateProjectionMatrix();
+    };
+    const handlers = {
+      zoomIn: () => dolly(1 / 1.25),
+      zoomOut: () => dolly(1.25),
+      reset: () => {
+        camera.position.set(2.4, 1.9, 2.8);
+        camera.lookAt(0, 0, 0);
+      },
+    };
+    registerViewport(handlers);
+    return () => releaseViewport(handlers);
+  }, [camera]);
 
   // Detect camera motion to drive adaptive ray-marching.
   useFrame(() => {

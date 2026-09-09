@@ -3,7 +3,13 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef } from "react";
 
-import ControlPanel from "@/components/controls/ControlPanel";
+import HoverBubble from "@/components/shell/HoverBubble";
+import IconRail from "@/components/shell/IconRail";
+import LayersPanel from "@/components/shell/LayersPanel";
+import Legend from "@/components/shell/Legend";
+import Logo from "@/components/shell/Logo";
+import StatusBar from "@/components/shell/StatusBar";
+import Timeline from "@/components/shell/Timeline";
 import MatchupPanel from "@/components/panels/MatchupPanel";
 import { api } from "@/lib/api/client";
 import { useSessionStore } from "@/state/useSessionStore";
@@ -22,10 +28,7 @@ export default function Page() {
   // animation reads it through getState().
   const phase = useSessionStore((st) => st.phase);
   const selection = useSessionStore((st) => st.selection);
-  const presets = useSessionStore((st) => st.presets);
   const variable = useSessionStore((st) => st.variable);
-  const health = useSessionStore((st) => st.health);
-  const applyPreset = useSessionStore((st) => st.applyPreset);
   const setPhase = useSessionStore((st) => st.setPhase);
   const setBlockProgress = useSessionStore((st) => st.setBlockProgress);
   const reset = useSessionStore((st) => st.reset);
@@ -120,96 +123,78 @@ export default function Page() {
   };
 
   const inBlock = phase === "extruding" || phase === "holding" || phase === "block";
-  const synthetic = health?.synthetic ?? true;
+  const settling = phase === "extruding" || phase === "holding";
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden bg-[#06121c] text-slate-100">
+    <main className="relative h-dvh w-full overflow-hidden bg-[color:var(--ze-ocean)]">
       <MapView visible={!inBlock} />
       <BlockCanvas visible={inBlock} />
 
-      {/* header */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-3">
-        <div className="pointer-events-auto rounded-lg border border-slate-700/60 bg-slate-900/90 px-3 py-2 backdrop-blur">
-          <div className="text-sm font-semibold tracking-tight">
-            Ocean Model&ndash;Observation Platform
-          </div>
-          <div className="text-[10px] text-slate-400">
-            SIH 26067 &middot; Indian EEZ / Bay of Bengal
-          </div>
-        </div>
-
-        <div className="pointer-events-auto flex items-center gap-2">
-          {synthetic && (
-            <div
-              className="rounded-md border border-amber-500/50 bg-amber-500/10 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wider text-amber-300"
-              title={health?.source ?? ""}
-            >
-              Synthetic data
-            </div>
-          )}
-          {health?.standards && (
-            <div className="rounded-md border border-slate-700/60 bg-slate-900/90 px-2.5 py-1.5 font-mono text-[9px] text-slate-400">
-              CF-1.8
-              {health.standards.wms ? " · WMS" : ""}
-              {health.standards.opendap ? " · OPeNDAP" : ""}
-            </div>
-          )}
-        </div>
+      <div className="pointer-events-auto absolute left-3 top-3 z-30">
+        <Logo />
+      </div>
+      <div className="pointer-events-auto absolute left-3 top-[78px] z-30 max-h-[calc(100dvh-190px)] overflow-y-auto">
+        <LayersPanel />
       </div>
 
-      {/* left controls */}
-      <div className="pointer-events-none absolute left-3 top-[68px] z-20">
-        <ControlPanel />
-      </div>
+      <IconRail />
 
-      {/* right panel */}
-      <div className="pointer-events-auto absolute right-3 top-[68px] z-20">
+      <div className="pointer-events-auto absolute right-[62px] top-3 z-30">
         <MatchupPanel />
       </div>
 
-      {/* bottom bar */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-center gap-3 p-3">
-        {!inBlock ? (
-          <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-900/90 px-3 py-2 backdrop-blur">
-            <span className="text-[11px] text-slate-400">
-              {selection
-                ? `${selection[0].toFixed(2)}, ${selection[1].toFixed(2)} to ${selection[2].toFixed(2)}, ${selection[3].toFixed(2)}`
-                : "Shift+drag on the map, or pick a region"}
+      {/* bottom-left: colour scale, with coordinates beneath it */}
+      <div className="absolute bottom-7 left-3 z-20">
+        <Legend />
+      </div>
+
+      {/* bottom-centre: time, and the one action that changes mode */}
+      <div className="pointer-events-none absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
+        {settling && (
+          <span className="ze-chip pointer-events-none">
+            <span className="text-[color:var(--ze-text-dim)]">
+              loading the water column&hellip;
             </span>
-            {presets.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => applyPreset(p)}
-                className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
-                title={p.note}
-              >
-                {p.label}
-              </button>
-            ))}
+          </span>
+        )}
+        <div className="flex items-end gap-2">
+          <Timeline />
+          {!inBlock ? (
             <button
               onClick={dive}
               disabled={!selection}
-              className="rounded bg-teal-500 px-4 py-1.5 text-[12px] font-semibold text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500"
+              className="ze-btn ze-btn-primary pointer-events-auto h-[46px] px-6 text-[14px]"
+              title={
+                selection
+                  ? "Extrude the selected region into a 3D block"
+                  : "Pick a region first: shift+drag on the map, or use Regions"
+              }
             >
               Dive
             </button>
-          </div>
-        ) : (
-          <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-slate-700/60 bg-slate-900/90 px-3 py-2 backdrop-blur">
+          ) : (
             <button
               onClick={back}
-              className="rounded border border-slate-700 px-3 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+              className="ze-btn pointer-events-auto h-[46px] px-4 text-[13px]"
             >
               Back to map
             </button>
-            <span className="text-[11px] text-slate-500">
-              {phase === "block"
-                ? "drag to orbit · scroll to zoom · click a float"
-                : "loading water column..."}
-            </span>
-          </div>
+          )}
+        </div>
+        {!inBlock && !selection && (
+          <span className="ze-overlay-text pointer-events-none">
+            shift+drag on the map to choose a region
+          </span>
+        )}
+        {phase === "block" && (
+          <span className="ze-overlay-text pointer-events-none" data-testid="block-hint">
+            drag to orbit &middot; scroll to zoom &middot; click a float
+          </span>
         )}
       </div>
+
+      <HoverBubble />
+      <StatusBar />
     </main>
   );
 }

@@ -1,26 +1,312 @@
 @import "tailwindcss";
 
+/*
+  Zoom Earth-style shell.
+
+  The map is the page. Everything else is a translucent dark chip floating on
+  top of it -- no page chrome, no scrolling document, no boxed layout. The
+  tokens below are the whole design language; components use them rather than
+  inventing their own greys, so a change here moves the entire UI at once.
+*/
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ze-panel: rgba(26, 29, 33, 0.86);
+  --ze-panel-solid: rgb(26, 29, 33);
+  --ze-hover: rgba(255, 255, 255, 0.07);
+  --ze-active: rgba(255, 255, 255, 0.13);
+  --ze-text: #eef1f4;
+  --ze-text-dim: #99a2ac;
+  --ze-text-faint: #6f7885;
+  --ze-accent: #4fd1c5;
+  --ze-warn: #f0b429;
+  --ze-radius: 14px;
+  --ze-radius-sm: 10px;
+  --ze-shadow: 0 2px 14px rgba(0, 0, 0, 0.38);
+  --ze-ocean: #06121c;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--ze-ocean);
+  color: var(--ze-text);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- surfaces */
+
+.ze-panel {
+  background: var(--ze-panel);
+  border-radius: var(--ze-radius);
+  box-shadow: var(--ze-shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+}
+
+/* Small caps section heading inside a panel. */
+.ze-section-label {
+  padding: 0 16px;
+  margin: 14px 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ze-text-faint);
+}
+
+/*
+  A menu row. Always wraps a real radio or checkbox: the visual is ours but
+  the semantics, keyboard behaviour and accessible name are the browser's,
+  which is also what keeps the smoke test able to address them by label.
+*/
+.ze-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  margin: 0 6px;
+  padding: 0 10px;
+  border-radius: var(--ze-radius-sm);
+  color: var(--ze-text);
+  font-size: 14.5px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms ease;
+}
+.ze-row:hover {
+  background: var(--ze-hover);
+}
+.ze-row[data-active="true"] {
+  background: var(--ze-active);
+}
+.ze-row input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.ze-row svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--ze-text-dim);
+}
+.ze-row[data-active="true"] svg {
+  color: var(--ze-accent);
+}
+
+/* Square icon button used in the right-hand rail. */
+.ze-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: var(--ze-radius);
+  background: var(--ze-panel);
+  box-shadow: var(--ze-shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  color: var(--ze-text);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.ze-icon-btn:hover {
+  background: rgba(46, 50, 56, 0.92);
+}
+.ze-icon-btn[data-active="true"] {
+  background: rgba(79, 209, 197, 0.22);
+  color: #bff3ed;
+}
+.ze-icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Stacked pair (zoom in / zoom out) sharing one chip. */
+.ze-stack {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ze-radius);
+  overflow: hidden;
+  background: var(--ze-panel);
+  box-shadow: var(--ze-shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+}
+.ze-stack button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--ze-text);
+  cursor: pointer;
+}
+.ze-stack button:hover {
+  background: var(--ze-hover);
+}
+.ze-stack button + button {
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+/* Text chip: model name, provenance badge. */
+.ze-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: var(--ze-panel);
+  box-shadow: var(--ze-shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Text drawn straight onto the map, so it needs its own contrast. */
+.ze-overlay-text {
+  color: rgba(255, 255, 255, 0.86);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- form bits */
+
+.ze-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  outline: none;
+}
+.ze-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--ze-text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.ze-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ze-text);
+  cursor: pointer;
+}
+
+.ze-input {
+  width: 100%;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--ze-text);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+}
+.ze-input:focus {
+  outline: none;
+  border-color: rgba(79, 209, 197, 0.6);
+}
+
+.ze-btn {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--ze-hover);
+  color: var(--ze-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ze-btn:hover {
+  background: var(--ze-active);
+}
+.ze-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ze-btn-primary {
+  background: var(--ze-accent);
+  color: #06231f;
+  font-weight: 600;
+}
+.ze-btn-primary:hover {
+  background: #6fe0d5;
+}
+.ze-btn-primary:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ze-text-faint);
+}
+
+/* --------------------------------------------------- maplibre integration */
+
+/*
+  MapLibre ships its own light control chrome. Restyled rather than replaced
+  so the scale bar stays correct at every latitude and zoom -- reimplementing
+  Mercator scale is a bug farm for no gain.
+*/
+.maplibregl-ctrl-scale {
+  border: 0;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.85);
+  border-left: 2px solid rgba(255, 255, 255, 0.85);
+  border-right: 2px solid rgba(255, 255, 255, 0.85);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  font-size: 10.5px;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  padding: 0 4px 1px;
+  margin: 0;
+}
+.maplibregl-ctrl-attrib {
+  display: none; /* replaced by our own attribution line */
+}
+.maplibregl-ctrl-bottom-right {
+  bottom: 4px;
+  right: 12px;
+}
+
+/* Scrollable popover bodies keep a thin, dark scrollbar. */
+.ze-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+.ze-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.ze-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+/*
+  Hard pointer-events off for the renderer that is not in front.
+  
+  `pointer-events: none` on a wrapper is NOT enough: a descendant that sets
+  `pointer-events: auto` -- which both the react-three-fiber canvas container
+  and the MapLibre canvas container do -- re-enables itself and swallows every
+  event over the whole viewport. The invisible 3D canvas sat on top of the map
+  and ate map panning, scroll zoom, shift+drag region selection and the corner
+  handles; nothing looked broken because the canvas is transparent.
+*/
+.ze-inert,
+.ze-inert * {
+  pointer-events: none !important;
 }

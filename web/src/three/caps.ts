@@ -66,7 +66,10 @@ export function probeGpu(): GpuCaps {
   if (software) {
     tier = "medium";
     volumeRes = "coarse";
-    steps = { idle: 48, moving: 24 };
+    // Measured on SwiftShader at 1440x900: 48 idle steps costs several seconds
+    // PER FRAME, which is indistinguishable from a hang. 32/16 still reads as
+    // volumetric and keeps the fallback usable rather than merely present.
+    steps = { idle: 32, moving: 16 };
   } else if (max3D >= 512) {
     tier = "high";
     volumeRes = "full";

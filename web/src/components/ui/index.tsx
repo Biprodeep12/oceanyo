@@ -1,0 +1,193 @@
+"use client";
+
+// Shell primitives for the Zoom Earth-style chrome.
+//
+// Every floating surface in the app is one of these, so the visual language
+// lives in exactly two places: the tokens in globals.css and the four
+// components here.
+
+import { useEffect, useRef, type ReactNode } from "react";
+import { IconClose } from "./icons";
+
+export function Panel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <div className={`ze-panel ${className}`}>{children}</div>;
+}
+
+export function SectionLabel({ children }: { children: ReactNode }) {
+  return <div className="ze-section-label">{children}</div>;
+}
+
+/**
+ * A menu row wrapping a real radio or checkbox.
+ *
+ * The input is visually hidden but present, so the row keeps keyboard
+ * behaviour, group semantics and an accessible name -- which is also what
+ * lets the browser smoke test address these by label rather than by position.
+ */
+export function MenuRow({
+  label,
+  icon,
+  checked,
+  onChange,
+  type = "checkbox",
+  name,
+  title,
+}: {
+  label: string;
+  icon?: ReactNode;
+  checked: boolean;
+  onChange: () => void;
+  type?: "checkbox" | "radio";
+  name?: string;
+  title?: string;
+}) {
+  return (
+    <label className="ze-row" data-active={checked} title={title}>
+      <input
+        type={type}
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        aria-label={label}
+      />
+      {icon}
+      <span className="truncate">{label}</span>
+    </label>
+  );
+}
+
+/** Labelled slider, ZE-thin, with the value shown on the right. */
+export function Slider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  format,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  format?: (v: number) => string;
+}) {
+  return (
+    <div className="px-4 py-1.5">
+      <div className="mb-1.5 flex items-baseline justify-between">
+        <span className="text-[12px] text-[color:var(--ze-text-dim)]">{label}</span>
+        <span className="font-mono text-[12px] text-[color:var(--ze-text)]">
+          {format ? format(value) : value}
+        </span>
+      </div>
+      <input
+        type="range"
+        className="ze-slider"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={label}
+      />
+    </div>
+  );
+}
+
+/**
+ * Popover anchored to a rail button.
+ *
+ * Closes on Escape and on a click outside. `anchor` decides which edge it
+ * grows from, because the rail runs down the right side and a popover that
+ * opens rightwards would leave the viewport.
+ */
+export function Popover({
+  title,
+  onClose,
+  children,
+  className = "",
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    const onDown = (e: MouseEvent) => {
+      const el = ref.current;
+      if (!el) return;
+      const target = e.target as Node;
+      // The rail button that opened this popover toggles it itself; ignoring
+      // the whole rail here stops the two handlers fighting.
+      if (el.contains(target)) return;
+      if ((target as HTMLElement).closest?.("[data-rail]")) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div ref={ref} className={`ze-panel w-[280px] overflow-hidden ${className}`}>
+      <div className="flex items-center justify-between px-4 pt-3 pb-1">
+        <div className="ze-section-label !m-0 !p-0">{title}</div>
+        <button
+          onClick={onClose}
+          aria-label={`Close ${title}`}
+          className="grid h-6 w-6 place-items-center rounded-md text-[color:var(--ze-text-dim)] hover:bg-white/10 hover:text-white"
+        >
+          <IconClose className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="ze-scroll max-h-[70vh] overflow-y-auto pb-3">{children}</div>
+    </div>
+  );
+}
+
+export function Chip({
+  name,
+  detail,
+  tone = "default",
+  title,
+}: {
+  name: string;
+  detail?: string;
+  tone?: "default" | "warn";
+  title?: string;
+}) {
+  return (
+    <span
+      className="ze-chip"
+      title={title}
+      style={
+        tone === "warn"
+          ? { color: "#f6d283", background: "rgba(72, 54, 16, 0.86)" }
+          : undefined
+      }
+    >
+      <b className="font-semibold tracking-wide">{name}</b>
+      {detail && (
+        <span style={{ color: tone === "warn" ? "#d9b268" : "var(--ze-text-dim)" }}>
+          {detail}
+        </span>
+      )}
+    </span>
+  );
+}

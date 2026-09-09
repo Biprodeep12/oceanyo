@@ -22,6 +22,10 @@ router = APIRouter(prefix="/api", tags=["fields"])
 @router.get("/slice")
 def slice_field(
     fmt: str = Query("json", pattern="^(json|png)$"),
+    res: int | None = Query(
+        None, ge=8, le=2048,
+        description="cap the returned grid to res x res cells (decimated, not interpolated)",
+    ),
     vmin: float | None = Query(None),
     vmax: float | None = Query(None),
     log: bool | None = Query(None),
@@ -32,7 +36,10 @@ def slice_field(
     """One depth level as a JSON grid or a colour-mapped PNG."""
     cfd = store.dataset_for(q.variable)
     depth = q.depth if q.depth is not None else q.depth_range.top
-    values, coords = cfd.select(q.variable, bbox=q.bbox, time=q.time, depth=depth)
+    values, coords = cfd.select(
+        q.variable, bbox=q.bbox, time=q.time, depth=depth,
+        max_shape=(1, res, res) if res else None,
+    )
     plane = values[0]
     cv = CANONICAL[q.variable]
 

@@ -105,10 +105,39 @@ config/catalog.*.yaml     the swap surface: synthetic <-> real, same schema
 backend/app/core/         the seam. conventions.py is written by the generator
                           AND read by the CF adapter, which is what makes the
                           swap a config change rather than a rewrite
-backend/app/api/          FastAPI: 20 endpoints, parser registry, services
+backend/app/api/          FastAPI: 21 endpoints, parser registry, services
 backend/app/pipeline/     synthetic generator + contract verification
 web/src/                  Next.js: MapLibre map mode, react-three-fiber block
+web/src/components/shell/ the floating UI: layers panel, rail, timeline, legend
 ```
+
+See [FEATURES.md](FEATURES.md) for what the thing actually does.
+
+### Interface
+
+The map is the page: a full-bleed canvas with translucent panels floating on
+top, in the shape a weather map conventionally takes — logo and layer list on
+the left, an icon rail on the right, time at the bottom centre, colour scale
+and coordinates along the bottom edge. The design language is nine CSS
+variables and four primitives in `globals.css`, so a change moves the whole UI
+at once rather than being retyped per component.
+
+Three consequences worth stating:
+
+- **Menu rows wrap real radios and checkboxes.** The visual is ours; the
+  semantics, keyboard behaviour and accessible name are the browser's. That is
+  also what lets the smoke test address them by label instead of by pixel.
+- **The pointer readout samples locally.** One decimated grid per (variable,
+  depth, time) is fetched and bilinearly sampled, so a value follows the cursor
+  with no request per mouse move.
+- **The hidden renderer is made inert with a class, not an inline style.**
+  `pointer-events: none` on a wrapper is not enough: both the r3f canvas
+  container and the MapLibre canvas container set `pointer-events: auto` on
+  themselves and win. The invisible 3D canvas therefore sat on top of the map
+  and swallowed every mouse event -- panning, scroll zoom, shift+drag region
+  selection and the corner handles were all dead, and nothing looked wrong
+  because the canvas is transparent and the demo path used preset buttons. A
+  shift+drag step in the smoke test now guards it.
 
 ### Decisions worth knowing
 
@@ -141,6 +170,14 @@ web/src/                  Next.js: MapLibre map mode, react-three-fiber block
   tables match. Mixing index space with linear depth is not a cosmetic error:
   it put 1000 m floats at mid-block when that water was near the bottom, and
   drew shelf seabed near the surface with rendered water beneath it.
+- **No remote basemap, and the coastline comes from our own bathymetry.** A
+  remote style that stalls leaves MapLibre permanently unloaded, and it then
+  refuses to render *any* vector layer -- the selection rectangle and the
+  instrument markers vanish while raster tiles keep working. Land is traced
+  from the same elevation field the seabed mesh uses, so the map has zero
+  network dependencies beyond our own API and the coastline agrees with the
+  block by construction. With the synthetic catalog it is a synthetic
+  coastline, and the API response says so.
 - **The climatology is interpolated onto the model grid, not required to match
   it.** The synthetic pair happens to share axes, which would have made a shape
   check pass forever — but every real climatology is coarser than the model it
@@ -163,7 +200,7 @@ web/src/                  Next.js: MapLibre map mode, react-three-fiber block
 | Standard | Endpoint | Status |
 |---|---|---|
 | CF-1.8 | dataset attributes | `positive="down"` on depth; `cf-xarray` resolves all four axes name-agnostically |
-| OGC WMS | `/wms?service=WMS&request=GetCapabilities` | advertises `thetao`, `so`, `uo`, `vo` |
+| OGC WMS | `/wms?service=WMS&version=1.3.0&request=GetCapabilities` | advertises `thetao`, `so`, `uo`, `vo` |
 | OGC WMS | `/wms?...request=GetMap` | use `crs=EPSG:3857`, or `EPSG:4326` in lon,lat order |
 | OPeNDAP | `/opendap.dds` | full DAP dataset descriptor |
 
@@ -216,16 +253,22 @@ the ASCII/CSV ingestion requirement).
 
 ```bash
 npm run verify           # data contract: 40 assertions
-node web/scripts/smoke.mjs   # browser smoke test, 20 steps (needs both servers)
+node web/scripts/smoke.mjs   # browser smoke test, 21 steps (needs both servers)
 ```
 
 The smoke test drives the real demo path in Chromium and fails on any console
-error: load, catalog, map render, region select, Dive, block render, click a
-float, matchup statistics, isosurface, current particles, colorbar, anomaly
-layer, glider tracks, cross-section, back to map. It is what caught the
-MapLibre worker failure, the CSS position collision, the tile-template encoding
-bug and a conditional-hook regression -- none of which a typecheck or an API
-test can see.
+error: load, catalog, map render, pointer readout, shift+drag selection,
+region presets, Dive, block render, click a float, matchup statistics,
+isosurface, current particles, colorbar, anomaly layer, glider tracks,
+cross-section, back to map. It is what caught the MapLibre worker failure, the
+CSS position collision, the tile-template encoding bug, a conditional-hook
+regression and the dead-map pointer-events bug -- none of which a typecheck or
+an API test can see.
+
+Screenshots are captured with a long timeout and their elapsed time is printed:
+this runs on SwiftShader, where a full-viewport ray-march takes seconds per
+frame, and a slow software renderer must not read as a failure while a genuine
+hang still does.
 
 Covers CF axis detection and `positive="down"`, monotonic axes, variable
 resolution by `standard_name`, depth coverage to 2000 m for Argo matchups, the

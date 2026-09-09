@@ -16,6 +16,7 @@ import type {
   ParserCapabilities,
   RegionPreset,
   SectionResponse,
+  SliceResponse,
   VariableSummary,
 } from "./types";
 
@@ -114,6 +115,39 @@ export const api = {
       signal,
     );
   },
+
+  /**
+   * One depth level as a JSON grid.
+   *
+   * `res` caps the returned grid, which is what makes the pointer readout
+   * affordable: one coarse grid covering the whole dataset extent is fetched
+   * per (variable, depth, time) and sampled locally, instead of a request per
+   * pointer move.
+   */
+  slice: (
+    opts: { variable: string; depth: number; time?: string; res?: number; bbox?: BBox },
+    signal?: AbortSignal,
+  ) => {
+    const p = new URLSearchParams({ var: opts.variable, depth: String(opts.depth) });
+    if (opts.time) p.set("time", opts.time);
+    if (opts.res) p.set("res", String(opts.res));
+    if (opts.bbox) p.set("bbox", bboxParam(opts.bbox));
+    return getJSON<SliceResponse>(`/api/slice?${p}`, signal);
+  },
+
+  /**
+   * Coastline traced from the bathymetry, as GeoJSON.
+   *
+   * There is deliberately no remote basemap (a stalled style leaves MapLibre
+   * permanently unloaded), so geographic context comes from the same elevation
+   * field the seabed mesh uses -- consistent with the block by construction,
+   * and with no third-party tiles to fail on conference wifi.
+   */
+  coastline: (signal?: AbortSignal) =>
+    getJSON<GeoJSON.FeatureCollection & { synthetic: boolean; note: string }>(
+      "/api/coastline",
+      signal,
+    ),
 
   bathymetry: (bbox: BBox, res: number, signal?: AbortSignal) =>
     getJSON<BathymetryResponse>(

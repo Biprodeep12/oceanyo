@@ -22,8 +22,10 @@ function Stat({
   // "0.320 degrees_C" overflow a 268px panel and collide with each other.
   return (
     <div className="flex min-w-0 flex-col" title={hint}>
-      <span className="text-[9px] uppercase tracking-wider text-slate-400">{label}</span>
-      <span className="truncate font-mono text-[13px] text-slate-100">
+      <span className="text-[9px] uppercase tracking-wider text-[color:var(--ze-text-faint)]">
+        {label}
+      </span>
+      <span className="truncate font-mono text-[13px] text-[color:var(--ze-text)]">
         {value === null || value === undefined
           ? "--"
           : `${value >= 0 && label === "Bias" ? "+" : ""}${value.toFixed(3)}`}
@@ -110,8 +112,8 @@ export default function MatchupPanel() {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-slate-700/60 bg-slate-900/80 p-3 text-xs text-slate-400">
-        Loading profile...
+      <div className="ze-panel px-3.5 py-3 text-[12px] text-[color:var(--ze-text-dim)]">
+        Loading profile&hellip;
       </div>
     );
   }
@@ -123,21 +125,21 @@ export default function MatchupPanel() {
   };
 
   return (
-    <div className="w-72 rounded-lg border border-slate-700/60 bg-slate-900/90 p-3 backdrop-blur">
+    <div className="ze-panel w-[288px] p-3.5">
       <div className="mb-2 flex items-start justify-between">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-400">
-            {profile.platform} profile
+          <div className="ze-section-label !m-0 !p-0">{profile.platform} profile</div>
+          <div className="mt-0.5 font-mono text-[13px] text-[color:var(--ze-text)]">
+            {profile.id}
           </div>
-          <div className="font-mono text-sm text-slate-100">{profile.id}</div>
-          <div className="text-[10px] text-slate-500">
+          <div className="text-[10px] text-[color:var(--ze-text-faint)]">
             {profile.lat.toFixed(2)}&deg;N {profile.lon.toFixed(2)}&deg;E &middot;{" "}
             {profile.time.slice(0, 10)} &middot; mode {profile.dataMode}
           </div>
         </div>
         <button
           onClick={close}
-          className="rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+          className="grid h-6 w-6 place-items-center rounded-md text-[color:var(--ze-text-dim)] hover:bg-white/10 hover:text-white"
           aria-label="Close profile"
         >
           &times;
@@ -146,29 +148,29 @@ export default function MatchupPanel() {
 
       {matchup ? (
         <>
-          <div className="mb-2 rounded border border-slate-700/50 bg-slate-950/50 p-2">
+          <div className="mb-2 rounded-lg bg-black/25 p-2.5">
             <div className="grid grid-cols-4 gap-1.5">
               <Stat label="Bias" value={matchup.bias} hint="mean(model - observation)" />
               <Stat label="RMSE" value={matchup.rmse} />
               <Stat label="MAE" value={matchup.mae} />
               <Stat label="Corr" value={matchup.corr} hint="Pearson correlation" />
             </div>
-            <div className="mt-1 text-[9px] text-slate-500">
+            <div className="mt-1.5 text-[9px] text-[color:var(--ze-text-faint)]">
               bias / rmse / mae in {varMeta?.units ?? ""}
             </div>
           </div>
-          <div className="mb-1 text-[10px] leading-relaxed text-slate-500">
+          <div className="mb-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
             {matchup.n} levels matched within {matchup.radiusKm} km /{" "}
             {matchup.windowHours} h &middot; QC {matchup.qcFlagsUsed.join(",")} only
           </div>
           <ProfileChart />
-          <div className="mt-1 border-t border-slate-800 pt-1.5 text-[9px] leading-relaxed text-slate-500">
+          <div className="mt-1 border-t border-white/10 pt-1.5 text-[9px] leading-relaxed text-[color:var(--ze-text-faint)]">
             Model interpolated onto observation depths. Statistics use QC flag 1
             (good) only; display keeps 1 and 2.
           </div>
         </>
       ) : (
-        <div className="text-xs text-slate-400">
+        <div className="text-[12px] text-[color:var(--ze-text-dim)]">
           No matchup for this profile and variable.
         </div>
       )}
