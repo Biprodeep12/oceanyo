@@ -1,9 +1,0 @@
-{
-  "source": "50m",
-  "url": "https://naciscdn.org/naturalearth/50m/raster/NE2_50M_SR_W.zip",
-  "maximumLevel": 4,
-  "tileWidth": 256,
-  "tileHeight": 256,
-  "credit": "Natural Earth II (public domain)",
-  "n_tiles": 682
-}

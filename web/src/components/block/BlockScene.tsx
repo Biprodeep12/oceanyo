@@ -68,18 +68,93 @@ function SeabedMesh({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bathy, bbox.join(","), depthRange.join(","), exaggeration, depths]);
 
+  // The rock BELOW the seabed.
+  //
+  // A heightfield alone is a sheet of paper: from any angle that sees under an
+  // overhang -- and a continental slope has plenty -- you look straight through
+  // the seafloor into the inside of the block, and the terrain reads as a
+  // floating surface rather than as the bottom of the ocean. Skirts from the
+  // boundary down to the floor plus a cap close it into a solid.
+  //
+  // Built in the SURFACE's own local space and read back off its position
+  // buffer rather than recomputed: the heightfield's rows come from
+  // PlaneGeometry's vertex order, and re-deriving that by hand is how a seabed
+  // ends up mirrored north-south against the water column above it.
+  const skirt = useMemo(() => {
+    const [ny, nx] = bathy.shape;
+    const frame = makeFrame(bbox, depthRange, exaggeration);
+    const floor = toWorld([0, 0, 0], frame)[1]; // yNorm 0 is the deepest level
+    const src = geometry.attributes.position as THREE.BufferAttribute;
+    const at = (i: number, j: number) => {
+      const k = j * nx + i;
+      return [src.getX(k), src.getY(k), src.getZ(k)] as const;
+    };
+
+    const v: number[] = [];
+    const quad = (
+      a: readonly number[],
+      b: readonly number[],
+      c: readonly number[],
+      d: readonly number[],
+    ) => v.push(...a, ...b, ...c, ...a, ...c, ...d);
+
+    // Four walls. Wind each so its outward face points away from the block.
+    for (let i = 0; i < nx - 1; i++) {
+      const a = at(i, 0), b = at(i + 1, 0);
+      quad([a[0], a[1], floor], [b[0], b[1], floor], b, a);
+      const c = at(i, ny - 1), d = at(i + 1, ny - 1);
+      quad(c, d, [d[0], d[1], floor], [c[0], c[1], floor]);
+    }
+    for (let j = 0; j < ny - 1; j++) {
+      const a = at(0, j), b = at(0, j + 1);
+      quad(a, b, [b[0], b[1], floor], [a[0], a[1], floor]);
+      const c = at(nx - 1, j), d = at(nx - 1, j + 1);
+      quad([c[0], c[1], floor], [d[0], d[1], floor], d, c);
+    }
+
+    // Cap, so the solid is closed when seen from below.
+    const c00 = at(0, 0), c10 = at(nx - 1, 0), c11 = at(nx - 1, ny - 1), c01 = at(0, ny - 1);
+    quad(
+      [c00[0], c00[1], floor],
+      [c01[0], c01[1], floor],
+      [c11[0], c11[1], floor],
+      [c10[0], c10[1], floor],
+    );
+
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+    g.computeVertexNormals();
+    return g;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geometry, bathy, bbox.join(","), depthRange.join(","), exaggeration]);
+
   useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => skirt.dispose(), [skirt]);
 
   return (
-    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <meshStandardMaterial
-        color="#5a4a3d"
-        roughness={0.95}
-        metalness={0.02}
-        side={THREE.DoubleSide}
-        flatShading={false}
-      />
-    </mesh>
+    <group rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh geometry={geometry} receiveShadow>
+        <meshStandardMaterial
+          color="#5a4a3d"
+          roughness={0.95}
+          metalness={0.02}
+          side={THREE.DoubleSide}
+          flatShading={false}
+        />
+      </mesh>
+      {/* Darker than the seafloor: this is the cut face of the block, not
+          terrain, and lighting it identically makes the two read as one
+          continuous surface at a strange angle. */}
+      <mesh geometry={skirt}>
+        <meshStandardMaterial
+          color="#3a2f27"
+          roughness={1}
+          metalness={0}
+          side={THREE.DoubleSide}
+          flatShading
+        />
+      </mesh>
+    </group>
   );
 }
 

@@ -467,6 +467,26 @@ Two more things worth knowing about this data:
   gross-range check against the variable's valid range -- the first test in
   any operational QC suite, and the reason delayed mode exists.
 
+### The basemap is ours too
+
+Land is **Natural Earth II** (public domain), bundled in `web/public/basemap`
+as 341 Web Mercator tiles, 3.4 MB. Still no remote basemap: a remote source
+leaves MapLibre's style permanently "not loaded" if it stalls, and it then
+refuses to render *any* vector layer -- the selection rectangle and the
+instrument markers vanish while raster tiles keep working.
+
+It exists because a regional subset without land is an unexplained void that
+reads as a broken renderer rather than as "no data here". That was the first
+thing a real user said about it.
+
+`scripts/build_basemap.py` reprojects a **geodetic TMS** pyramid (2^(z+1) x 2^z
+tiles, y from the south -- what Cesium wants) into **Web Mercator XYZ** (2^z x
+2^z, y from the north -- what MapLibre wants). Serving the former as the latter
+is wrong in two independent ways at once: latitudes compressed by the missing
+Mercator stretch, and the image mirrored top to bottom. The result looks like a
+half-broken alignment rather than a projection error, which is exactly why it
+is worth a script instead of a shrug.
+
 ## Standards compliance
 
 | Standard | Endpoint | Status |
