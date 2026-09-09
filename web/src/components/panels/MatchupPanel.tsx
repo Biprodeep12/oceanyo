@@ -55,9 +55,9 @@ function ProfileChart() {
     const dMax = Math.max(...pts.map((p) => p.depth));
     const pad = (vMax - vMin) * 0.08 || 1;
 
-    const W = 240;
-    const H = 300;
-    const L = 34;
+    const W = 326;
+    const H = 384;
+    const L = 38;
     const T = 8;
     const x = (v: number) => L + ((v - (vMin - pad)) / (vMax - vMin + 2 * pad)) * (W - L - 8);
     const y = (d: number) => T + (d / dMax) * (H - T - 20);
@@ -126,14 +126,14 @@ function TaylorDiagram() {
     if (!stdObs || stdModel == null || corr == null || stdObs <= 0) return null;
 
     const sd = stdModel / stdObs; // normalised standard deviation
-    const W = 246;
-    const H = 168;
-    const L = 30; // origin x
+    const W = 326;
+    const H = 224;
+    const L = 34; // origin x
     const B = H - 22; // origin y
     // Scale so the reference arc (sd = 1) sits at 60% of the usable width,
     // leaving room for a model that is more variable than the observation.
     const maxSd = Math.max(1.6, Math.min(2.5, sd * 1.25));
-    const R = Math.min(W - L - 30, B - 12) / maxSd;
+    const R = Math.min(W - L - 42, B - 14) / maxSd;
     const pt = (s: number, c: number) => {
       const th = Math.acos(Math.max(-1, Math.min(1, c)));
       return [L + s * R * Math.cos(th), B - s * R * Math.sin(th)] as const;
@@ -238,7 +238,12 @@ export default function MatchupPanel() {
             // timeline and the colour scale, and a profile that covered them
             // would hide the controls needed to change what it is showing.
             "ze-panel fixed inset-x-2 top-2 max-h-[58dvh] overflow-y-auto p-3.5"
-          : "ze-panel w-[288px] p-3.5"
+          : // Wider than the rail-adjacent panels: this one carries a four-column
+            // statistics row, a depth profile and a Taylor diagram, and at
+            // 288px the chart was 240px of plot for a 2000 m axis. Capped to
+            // the viewport so a deep profile scrolls inside the panel instead
+            // of running off the bottom of the screen.
+            "ze-panel ze-scroll max-h-[calc(100dvh-24px)] w-[360px] overflow-y-auto p-3.5"
       }
     >
       <div className="mb-2 flex items-start justify-between">
@@ -275,8 +280,14 @@ export default function MatchupPanel() {
             </div>
           </div>
           <div className="mb-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
-            {matchup.n} levels matched within {matchup.radiusKm} km /{" "}
-            {matchup.windowHours} h &middot; QC {matchup.qcFlagsUsed.join(",")} only
+            {/* Both are now derived from the model's own grid and timestep, so
+                they arrive as awkward reals rather than the round numbers a
+                fixed default gave. */}
+            {matchup.n} levels matched within {Math.round(matchup.radiusKm)} km /{" "}
+            {matchup.windowHours >= 48
+              ? `${Math.round(matchup.windowHours / 24)} d`
+              : `${Math.round(matchup.windowHours)} h`}{" "}
+            &middot; QC {matchup.qcFlagsUsed.join(",")} only
           </div>
           <div className="mt-1.5 flex gap-1" role="tablist" aria-label="Chart">
             {(["profile", "taylor"] as const).map((t) => (

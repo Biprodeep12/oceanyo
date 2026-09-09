@@ -100,6 +100,32 @@ def compute_matchup(
     # (a) spatial and temporal colocation
     dlat = _km_to_deg_lat(radius_km)
     dlon = _km_to_deg_lon(radius_km, profile.lat)
+
+    # The box must contain at least one model cell.
+    #
+    # 25 km is a sensible colocation radius and silently assumes a fine grid.
+    # This Indian Ocean subset is 0.24 deg x 0.48 deg -- 27 km by 53 km at the
+    # equator -- so a +/-25 km box is NARROWER THAN ONE CELL in longitude and
+    # frequently falls between grid points entirely. `.sel(slice)` then returns
+    # an empty array, every model level is NaN, and the panel reports "0 levels
+    # matched" with a full set of dashes for a float sitting in perfectly good
+    # data. It looks like missing data and is a units mismatch between the
+    # radius and the grid.
+    #
+    # Half a spacing each side is the minimum that always captures the nearest
+    # cell; the effective radius is reported back so the panel never claims a
+    # tighter colocation than it used.
+    lats, lons = cfd.lats, cfd.lons
+    if lats.size > 1:
+        dlat = max(dlat, float(np.median(np.abs(np.diff(lats)))) * 0.55)
+    if lons.size > 1:
+        dlon = max(dlon, float(np.median(np.abs(np.diff(lons)))) * 0.55)
+    radius_km = max(
+        radius_km,
+        dlat * 111.0,
+        dlon * 111.0 * math.cos(math.radians(profile.lat)),
+    )
+
     box = BBox(
         profile.lon - dlon, profile.lat - dlat,
         profile.lon + dlon, profile.lat + dlat,

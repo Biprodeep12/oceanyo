@@ -9,6 +9,7 @@ import LayersPanel from "@/components/shell/LayersPanel";
 import Legend from "@/components/shell/Legend";
 import LocatorInset from "@/components/shell/LocatorInset";
 import Logo from "@/components/shell/Logo";
+import SelectionTag from "@/components/shell/SelectionTag";
 import StatusBar from "@/components/shell/StatusBar";
 import Timeline from "@/components/shell/Timeline";
 import MatchupPanel from "@/components/panels/MatchupPanel";
@@ -233,6 +234,7 @@ export default function Page() {
         <LocatorInset />
       </div>
 
+      <SelectionTag />
       <HoverBubble />
       <StatusBar />
     </main>

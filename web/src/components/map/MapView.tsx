@@ -166,6 +166,7 @@ export default function MapView({ visible }: { visible: boolean }) {
   const domain = useSessionStore((s) => s.domain);
   const times = useSessionStore((s) => s.times);
   const theme = useSessionStore((s) => s.theme);
+  const selectedProfile = useSessionStore((s) => s.selectedProfile);
   const variable = useSessionStore((s) => s.variable);
   const depth = useSessionStore((s) => s.depth);
   const selection = useSessionStore((s) => s.selection);
@@ -290,6 +291,26 @@ export default function MapView({ visible }: { visible: boolean }) {
           "circle-stroke-width": 1.2,
           "circle-stroke-color": "#0b1620",
           "circle-opacity": 0.95,
+        },
+      });
+
+      // The selected instrument, drawn as a ring ABOVE the markers.
+      //
+      // A marker that opens a 360px panel has to be findable again afterwards:
+      // among a hundred identical dots there is nothing to say which one the
+      // profile belongs to, and after the map pans there is nothing to say
+      // where it went.
+      m.addLayer({
+        id: "obs-selected",
+        type: "circle",
+        source: OBS_SOURCE,
+        filter: ["==", ["get", "id"], " none"],
+        paint: {
+          "circle-radius": 11,
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": 2.4,
+          "circle-stroke-color": "#4fd1c5",
+          "circle-stroke-opacity": 0.95,
         },
       });
 
@@ -482,6 +503,33 @@ export default function MapView({ visible }: { visible: boolean }) {
       /* a layer this style does not have is not an error worth surfacing */
     }
   }, [theme, ready]);
+
+  // --- follow the selection: ring it, and bring it into view ---
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const id = selectedProfile?.id;
+    try {
+      // A literal that no id can equal, so "nothing selected" hides the ring.
+      m.setFilter("obs-selected", ["==", ["get", "id"], id ?? " none"]);
+    } catch {
+      /* style not ready */
+    }
+    if (!selectedProfile) return;
+
+    // Ease, never jump, and only zoom IN. Yanking someone from a basin view to
+    // z8 loses the context that made the float interesting; refusing to zoom
+    // out preserves a closer view they chose themselves.
+    const target = Math.max(m.getZoom(), 5.5);
+    userMoved.current = true; // an explicit move; stop auto-fitting to the domain
+    m.easeTo({
+      center: [selectedProfile.lon, selectedProfile.lat],
+      zoom: target,
+      duration: 700,
+      // Keep it clear of the 360px panel on the right and the layers panel.
+      padding: { left: 280, right: 400, top: 40, bottom: 120 },
+    });
+  }, [selectedProfile, ready]);
 
   // --- click an instrument on the MAP, not only in the block ---
   useEffect(() => {

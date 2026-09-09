@@ -269,6 +269,7 @@ function Instruments({
   const setLoadingProfile = useSessionStore((s) => s.setLoadingProfile);
   const variable = useSessionStore((s) => s.variable);
   const time = useSessionStore(currentTime);
+  const selectedId = useSessionStore((s) => s.selectedProfile?.id);
 
   // Same time window as the map, from the same module, so the two views can
   // never show a different set of instruments for the same timestep.
@@ -329,9 +330,13 @@ function Instruments({
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
 
-      // Colour = model-observation error magnitude where known, grey where not.
+      // Colour = model-observation error magnitude where known, grey where not
+      // -- except the selected one, which wears the accent so the instrument
+      // whose profile is open is findable in a block full of identical
+      // capsules.
       const err = errorById[f.properties.id];
-      if (err === undefined) color.set("#8aa0b4");
+      if (f.properties.id === selectedId) color.set("#4fd1c5");
+      else if (err === undefined) color.set("#8aa0b4");
       else if (err < 0.35) color.set("#3fb98a");
       else if (err < 0.8) color.set("#e8c15a");
       else color.set("#e2603f");
@@ -350,7 +355,7 @@ function Instruments({
     // float does nothing at all. Nothing errors; the instrument is simply
     // inert. Recompute it whenever the matrices change.
     mesh.computeBoundingSphere();
-  }, [inBox, errorById, bbox, depthRange, frame, depths]);
+  }, [inBox, errorById, bbox, depthRange, frame, depths, selectedId]);
 
   const onClick = async (ev: { instanceId?: number; stopPropagation: () => void }) => {
     ev.stopPropagation();
