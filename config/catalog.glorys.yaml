@@ -1,0 +1,40 @@
+# Real-data catalog. Structurally identical to catalog.synthetic.yaml --
+# swapping OCEANUPS_CATALOG between them is the whole migration path.
+id: bob-glorys12
+source: "GLORYS12V1 (CMEMS) - GLOBAL_MULTIYEAR_PHY_001_030, DOI 10.48670/moi-00021"
+synthetic: false
+
+model:
+  uri: data/derived/glorys_bob.nc
+  engine: h5netcdf
+  # Empty = resolve via standard_name / cf-xarray. This is the mechanism;
+  # the mapping below is only an escape hatch for non-conforming files.
+  variables: {}
+
+bgc:
+  uri: data/derived/bgc_bob.nc
+  engine: h5netcdf
+  variables:
+    chlorophyll: chl
+
+bathymetry:
+  uri: data/raw/gebco_2024_bob.nc
+  engine: h5netcdf
+  variable: elevation
+
+climatology:
+  uri: data/derived/climatology.nc
+  engine: h5netcdf
+
+observations:
+  - platform: argo
+    parser: argo_netcdf
+    uri: data/raw/argo
+  - platform: glider
+    parser: glider_ego
+    uri: data/raw/glider
+
+defaults:
+  bbox: [80, 5, 95, 22]
+  depth_range: [0, 2000]
+  variable: temperature

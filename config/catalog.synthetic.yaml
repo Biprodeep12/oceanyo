@@ -1,0 +1,40 @@
+# DEFAULT catalog. Structurally identical to catalog.glorys.yaml -- swapping
+# between them is the whole real-data migration path.
+id: bob-synthetic
+source: "SYNTHETIC - GLORYS12V1-shaped, not a reanalysis"
+synthetic: true
+
+model:
+  uri: data/synthetic/model.nc
+  engine: h5netcdf
+  # Empty = resolve via standard_name / cf-xarray. This is the mechanism;
+  # the mapping below is only an escape hatch for non-conforming files.
+  variables: {}
+
+bgc:
+  uri: data/synthetic/bgc.nc
+  engine: h5netcdf
+  variables:
+    chlorophyll: chl
+
+bathymetry:
+  uri: data/synthetic/gebco.nc
+  engine: h5netcdf
+  variable: elevation
+
+climatology:
+  uri: data/synthetic/climatology.nc
+  engine: h5netcdf
+
+observations:
+  - platform: argo
+    parser: argo_synthetic
+    uri: data/synthetic/argo
+  - platform: glider
+    parser: glider_synthetic
+    uri: data/synthetic/glider
+
+defaults:
+  bbox: [80, 5, 95, 22]
+  depth_range: [0, 2000]
+  variable: temperature

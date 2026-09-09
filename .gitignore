@@ -1,0 +1,23 @@
+# data
+data/synthetic/
+data/cache/
+data/raw/
+*.nc
+*.glb
+
+# python
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# node
+node_modules/
+web/.next/
+web/out/
+.env
+.env.local
+
+# misc
+.DS_Store
+Thumbs.db
