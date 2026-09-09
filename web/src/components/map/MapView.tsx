@@ -22,6 +22,7 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 import { api } from "@/lib/api/client";
 import type { BBox } from "@/lib/api/types";
 import { currentTime, useSessionStore } from "@/state/useSessionStore";
+import { useDisplaySettings } from "@/state/useDisplaySettings";
 
 const FIELD_SOURCE = "ocean-field";
 const FIELD_LAYER = "ocean-field-layer";
@@ -84,8 +85,13 @@ function graticule(step = 5): GeoJSON.FeatureCollection {
 // MapLibre needs the literal {z}/{x}/{y} placeholders. Passing the template
 // through `new URL()` percent-encodes the braces, MapLibre then finds no
 // placeholders, and the source silently requests nothing at all.
-function tileTemplate(variable: string, time: string, depth: number): string {
-  return `${location.origin}${api.tileUrl(variable, time, depth)}`;
+function tileTemplate(
+  variable: string,
+  time: string,
+  depth: number,
+  display?: { range?: [number, number]; log?: boolean; colormap?: string },
+): string {
+  return `${location.origin}${api.tileUrl(variable, time, depth, display)}`;
 }
 
 function selectionGeoJSON(bbox: BBox | null): GeoJSON.FeatureCollection {
@@ -127,6 +133,7 @@ export default function MapView({ visible }: { visible: boolean }) {
   const observations = useSessionStore((s) => s.observations);
   const errorById = useSessionStore((s) => s.errorById);
   const time = useSessionStore(currentTime);
+  const display = useDisplaySettings();
   const setSelection = useSessionStore((s) => s.setSelection);
 
   // --- init ---
@@ -156,7 +163,7 @@ export default function MapView({ visible }: { visible: boolean }) {
 
       m.addSource(FIELD_SOURCE, {
         type: "raster",
-        tiles: [tileTemplate(variable, time ?? "latest", depth)],
+        tiles: [tileTemplate(variable, time ?? "latest", depth, display)],
         tileSize: 256,
         attribution: "SYNTHETIC data - not a reanalysis",
       });
@@ -298,8 +305,10 @@ export default function MapView({ visible }: { visible: boolean }) {
     if (!m || !ready) return;
     const src = m.getSource(FIELD_SOURCE) as maplibregl.RasterTileSource | undefined;
     if (!src) return;
-    src.setTiles([tileTemplate(variable, time ?? "latest", depth)]);
-  }, [variable, depth, time, ready]);
+    src.setTiles([tileTemplate(variable, time ?? "latest", depth, display)]);
+    // MapLibre keeps showing the old tiles until new ones arrive, so a colour
+    // change reads as a cross-fade rather than a flash of empty map.
+  }, [variable, depth, time, ready, display]);
 
   // --- observation markers ---
   useEffect(() => {

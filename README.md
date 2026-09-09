@@ -68,7 +68,7 @@ npm --prefix web install
 npm run synth          # or: npm run synth:tiny for a fast 15 MB version
 
 # 4. Verify the data contract
-npm run verify         # 33 assertions, including the bias-recovery test
+npm run verify         # 34 assertions, including the bias-recovery test
 
 # 5. Run both servers
 npm run dev            # API on :8000, web on :3000
@@ -194,7 +194,7 @@ the ASCII/CSV ingestion requirement).
 ## Verification
 
 ```bash
-npm run verify           # data contract: 33 assertions
+npm run verify           # data contract: 34 assertions
 node web/scripts/smoke.mjs   # browser smoke test (needs both servers up)
 ```
 
@@ -207,29 +207,37 @@ of which a typecheck or an API test can see.
 Covers CF axis detection and `positive="down"`, monotonic axes, variable
 resolution by `standard_name`, depth coverage to 2000 m for Argo matchups, the
 `(depth, lat, lon)` orientation contract, seabed masking, quantization round-trip
-within one quantum, fill mapping to reserved raw 0, parser discovery, and the
-end-to-end bias-recovery test.
+within one quantum, fill mapping to reserved raw 0, parser discovery, the
+assertion that no instrument samples below the seafloor, and the end-to-end
+bias-recovery test.
 
 The same suite runs against whichever catalog is configured, so it is also the
 gate for a real-data swap.
 
 ### Feature status against spec section 5
 
-Built and verified: map mode, rectangle selection with four corner handles,
-2D-to-3D transition, block mode with seabed mesh, ray-marched volume rendering,
-4D timeline, chlorophyll as a first-class variable, Argo and glider instruments
-as 3D instanced geometry coloured by model-observation error, NetCDF and CSV
-ingestion, the parser registry, variable selector, vertical exaggeration,
-simultaneous model + observation overlay, model-vs-observation comparison, and
-the CF / WMS / OPeNDAP standards surface.
+All 21 MVP items are built, and the browser smoke test exercises each of them:
 
-Backend complete but not yet wired into the UI: isosurface extraction
-(`/api/isosurface` returns valid glTF) and the climatology anomaly layer
-(`/api/anomaly`).
+1-4. Map mode over the Indian EEZ, axis-aligned rectangle selection with four
+draggable corner handles, animated 2D-to-3D transition, and block mode with a
+GEBCO-shaped seabed mesh.
 
-Not implemented: the animated GPU current-particle layer (the toggle is
-present, the shader is not), colorbar min/max and log/linear editing, and the
-distinct torpedo geometry and trajectory curve for gliders -- they currently
-render with the same capsule as floats. The extrude transition is a camera and
-opacity crossfade rather than the pixel-registered map-to-block hand-off
-described in the plan.
+5-9. Ray-marched volume rendering, an in-block depth plane, server-side
+isosurface extraction (marching cubes returned as glTF), the 4D timeline, and
+the depth-aware GPU current-particle layer.
+
+10-15. Chlorophyll as a first-class variable on its own BGC grid, Argo floats as
+instanced 3D bodies at their parking depth, gliders with distinct
+torpedo-and-wing geometry following their sawtooth flight path, CF NetCDF
+ingestion, CSV ingestion, and the parser registry.
+
+16-21. Variable selector, customizable colorbar (palette, min/max, log/linear --
+driving the map tiles and the volume shader from one setting), 1x-10x vertical
+exaggeration, simultaneous model + observation overlay, model-vs-observation
+matchup, and the CF / WMS / OPeNDAP standards surface.
+
+Reduced fidelity, stated plainly: the extrude is a camera and opacity crossfade
+rather than the pixel-registered map-to-block hand-off; the current layer's
+playback is time-compressed (direction and relative speed are the model's, the
+rate is not, and the UI says so); and the climatology anomaly endpoint
+(`/api/anomaly`) works but has no UI layer -- it remains a stretch item.

@@ -60,6 +60,10 @@ export interface SessionState {
   showIsosurface: boolean;
   isoLevel: number;
   opacity: number;
+  /** Colour range override per variable; absent = the variable's own range. */
+  colorRange: Record<string, [number, number]>;
+  logScale: Record<string, boolean>;
+  colormapOverride: Record<string, string>;
 
   // --- observations ---
   observations: ObservationFeature[];
@@ -86,6 +90,9 @@ export interface SessionState {
   setExaggeration: (v: number) => void;
   setOpacity: (v: number) => void;
   setIsoLevel: (v: number) => void;
+  setColorRange: (variable: string, range: [number, number] | null) => void;
+  setLogScale: (variable: string, log: boolean | null) => void;
+  setColormap: (variable: string, cmap: string | null) => void;
   toggle: (
     key: "showVolume" | "showSlice" | "showParticles" | "showIsosurface" | "playing",
   ) => void;
@@ -121,6 +128,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   showIsosurface: false,
   isoLevel: 20,
   opacity: 0.85,
+  colorRange: {},
+  logScale: {},
+  colormapOverride: {},
 
   observations: [],
   errorById: {},
@@ -144,6 +154,28 @@ export const useSessionStore = create<SessionState>((set) => ({
   setExaggeration: (exaggeration) => set({ exaggeration }),
   setOpacity: (opacity) => set({ opacity }),
   setIsoLevel: (isoLevel) => set({ isoLevel }),
+
+  setColorRange: (variable, range) =>
+    set((st) => {
+      const next = { ...st.colorRange };
+      if (range) next[variable] = range;
+      else delete next[variable];
+      return { colorRange: next };
+    }),
+  setLogScale: (variable, log) =>
+    set((st) => {
+      const next = { ...st.logScale };
+      if (log === null) delete next[variable];
+      else next[variable] = log;
+      return { logScale: next };
+    }),
+  setColormap: (variable, cmap) =>
+    set((st) => {
+      const next = { ...st.colormapOverride };
+      if (cmap === null) delete next[variable];
+      else next[variable] = cmap;
+      return { colormapOverride: next };
+    }),
   toggle: (key) => set((s) => ({ [key]: !s[key] }) as Partial<SessionState>),
   setObservations: (observations) => set({ observations }),
   setErrorById: (errorById) => set({ errorById }),
@@ -171,3 +203,7 @@ export const currentTime = (s: SessionState): string | undefined =>
 
 export const currentVariable = (s: SessionState): VariableSummary | undefined =>
   s.variables.find((v) => v.variable === s.variable);
+
+// NOTE: effective colour settings live in useDisplaySettings.ts, not here.
+// A selector that builds an object per call breaks zustand's equality check
+// and loops forever -- see the comment in that file.

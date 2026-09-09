@@ -18,6 +18,10 @@ import { getCached, loadVolume, volumeKey } from "@/lib/loading/volumeStore";
 import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
+import { useDisplaySettings } from "@/state/useDisplaySettings";
+import CurrentParticles from "./CurrentParticles";
+import GliderTracks from "./GliderTracks";
+import IsosurfaceMesh from "./IsosurfaceMesh";
 
 // ---------------------------------------------------------------- seabed
 
@@ -79,6 +83,8 @@ function VolumeMesh({
   opacity,
   clipY,
   moving,
+  display,
+  log,
 }: {
   header: VolumeHeader;
   texture: THREE.Data3DTexture;
@@ -87,6 +93,8 @@ function VolumeMesh({
   opacity: number;
   clipY: [number, number];
   moving: boolean;
+  display: [number, number];
+  log: boolean;
 }) {
   const caps = probeGpu();
   const materialRef = useRef<THREE.ShaderMaterial>(null);
@@ -110,6 +118,12 @@ function VolumeMesh({
         uThreshold: { value: 0.02 },
         uClipY: { value: new THREE.Vector2(clipY[0], clipY[1]) },
         uCamLocal: { value: new THREE.Vector3() },
+        // WebGL hands the shader raw/255, so the quantization scale is
+        // multiplied by 255 to invert it in one multiply-add.
+        uScale255: { value: header.scale * 255 },
+        uOffset: { value: header.offset },
+        uDisplay: { value: new THREE.Vector2(display[0], display[1]) },
+        uLog: { value: log ? 1 : 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -120,9 +134,14 @@ function VolumeMesh({
 
   useEffect(() => {
     if (!materialRef.current) return;
-    materialRef.current.uniforms.uOpacity.value = opacity;
-    materialRef.current.uniforms.uClipY.value.set(clipY[0], clipY[1]);
-  }, [opacity, clipY]);
+    const u = materialRef.current.uniforms;
+    u.uOpacity.value = opacity;
+    u.uClipY.value.set(clipY[0], clipY[1]);
+    u.uDisplay.value.set(display[0], display[1]);
+    u.uLog.value = log ? 1 : 0;
+    u.uScale255.value = header.scale * 255;
+    u.uOffset.value = header.offset;
+  }, [opacity, clipY, display, log, header]);
 
   useEffect(() => () => material.dispose(), [material]);
 
@@ -167,7 +186,24 @@ function Instruments({
     () =>
       observations.filter((f) => {
         const [lon, lat] = f.geometry.coordinates;
-        return lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3];
+        return (
+          f.properties.platform !== "glider" &&
+          lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]
+        );
+      }),
+    [observations, bbox],
+  );
+
+  // Gliders are drawn by GliderTracks: they fly a sawtooth, so a drifting
+  // capsule at a single parking depth would misrepresent them.
+  const gliders = useMemo(
+    () =>
+      observations.filter((f) => {
+        const [lon, lat] = f.geometry.coordinates;
+        return (
+          f.properties.platform === "glider" &&
+          lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]
+        );
       }),
     [observations, bbox],
   );
@@ -190,12 +226,10 @@ function Instruments({
       const [lon, lat] = f.geometry.coordinates;
       // Floats sit at their parking depth so they read as being in the water
       // column rather than pinned to the surface.
-      const parkDepth = f.properties.platform === "glider" ? 300 : 1000;
-      const d = Math.min(Math.max(parkDepth, depthRange[0]), depthRange[1]);
+      const d = Math.min(Math.max(1000, depthRange[0]), depthRange[1]);
       const norm = toBlockSpace(lon, lat, d, bbox, depthRange);
       const [x, y, z] = toWorld(norm, frame);
       dummy.position.set(x, y, z);
-      dummy.scale.setScalar(f.properties.platform === "glider" ? 0.9 : 1);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
 
@@ -231,9 +265,7 @@ function Instruments({
     }
   };
 
-  if (!inBox.length) return null;
-
-  return (
+  const floats = inBox.length ? (
     <instancedMesh
       ref={meshRef}
       args={[undefined, undefined, Math.max(inBox.length, 1)]}
@@ -244,6 +276,18 @@ function Instruments({
       <capsuleGeometry args={[0.018, 0.05, 4, 8]} />
       <meshStandardMaterial roughness={0.4} metalness={0.3} />
     </instancedMesh>
+  ) : null;
+
+  return (
+    <group>
+      {floats}
+      <GliderTracks
+        features={gliders}
+        bbox={bbox}
+        depthRange={depthRange}
+        exaggeration={exaggeration}
+      />
+    </group>
   );
 }
 
@@ -294,11 +338,15 @@ export default function BlockScene() {
   const exaggeration = useSessionStore((s) => s.exaggeration);
   const showVolume = useSessionStore((s) => s.showVolume);
   const showSlice = useSessionStore((s) => s.showSlice);
+  const showIsosurface = useSessionStore((s) => s.showIsosurface);
+  const showParticles = useSessionStore((s) => s.showParticles);
+  const isoLevel = useSessionStore((s) => s.isoLevel);
   const opacity = useSessionStore((s) => s.opacity);
   const depth = useSessionStore((s) => s.depth);
   const variable = useSessionStore((s) => s.variable);
   const playing = useSessionStore((s) => s.playing);
   const varMeta = useSessionStore(currentVariable);
+  const display = useDisplaySettings();
   const time = useSessionStore(currentTime);
   const setPhase = useSessionStore((s) => s.setPhase);
   const phase = useSessionStore((s) => s.phase);
@@ -418,15 +466,39 @@ export default function BlockScene() {
           header={volume.header}
           texture={volume.texture}
           size={frame.size}
-          colormap={varMeta?.colormap ?? "thermal"}
+          colormap={display.colormap}
           opacity={opacity}
           clipY={[-frame.size[1], frame.size[1]]}
           moving={moving || playing}
+          display={display.range}
+          log={display.log}
         />
       )}
 
       {showSlice && depths.length > 0 && (
         <DepthSlicePlane size={frame.size} y={sliceY} />
+      )}
+
+      {showParticles && depths.length > 0 && (
+        <CurrentParticles
+          bbox={selection}
+          depth={depth}
+          time={time}
+          size={frame.size}
+          planeY={sliceY}
+        />
+      )}
+
+      {showIsosurface && (
+        <IsosurfaceMesh
+          variable={variable}
+          bbox={selection}
+          depthRange={depthRange}
+          level={isoLevel}
+          time={time}
+          size={frame.size}
+          color="#9ae6f5"
+        />
       )}
 
       <Instruments bbox={selection} depthRange={depthRange} exaggeration={exaggeration} />

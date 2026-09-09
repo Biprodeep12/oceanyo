@@ -151,9 +151,9 @@ def write_bgc(profile: GridProfile, out: Path) -> Path:
 def write_bathymetry(profile: GridProfile, out: Path, *, seed: int = 7) -> Path:
     """Emit gebco.nc: elevation(latitude, longitude), negative below sea level."""
     # Bathymetry is rendered as a mesh, so it gets a finer grid than the model.
-    step = profile.resolution / 2.0
-    lon = np.round(np.arange(profile.west, profile.east + 1e-9, step), 6)
-    lat = np.round(np.arange(profile.south, profile.north + 1e-9, step), 6)
+    # The axes come from bathy.published_grid so the instrument generators
+    # sample exactly the seafloor that ships in this file.
+    lon, lat = bathy.published_grid(profile)
     elev = bathy.elevation(lon, lat, profile, seed=seed).astype(np.float32)
 
     ds = xr.Dataset(

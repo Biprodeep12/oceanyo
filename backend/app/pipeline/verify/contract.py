@@ -161,6 +161,56 @@ def run_contract(catalog_path: Path) -> bool:
             c.check("temperature" in p.variables,
                     f"obs: {src.platform} profile carries temperature")
 
+    # --- instruments must not sample through the seafloor ---
+    #
+    # A float or glider drawn below the seabed is an obvious physical error in
+    # the 3D view, and it is the kind of thing that regresses silently when the
+    # bathymetry or the platform depths change.
+    if cat.bathymetry is not None:
+        try:
+            bathy_ds = CFDataset.open(
+                cat.bathymetry.uri, source=cat.source, synthetic=cat.synthetic,
+                engine=cat.bathymetry.engine,
+            )
+            b_lons, b_lats = bathy_ds.lons, bathy_ds.lats
+            b_elev = np.asarray(bathy_ds.ds["elevation"].values, dtype=float)
+
+            def _seabed(lon: float, lat: float) -> float:
+                i = int(np.clip(np.searchsorted(b_lats, lat) - 1, 0, len(b_lats) - 1))
+                j = int(np.clip(np.searchsorted(b_lons, lon) - 1, 0, len(b_lons) - 1))
+                return float(-b_elev[i, j])
+
+            offenders: list[str] = []
+            checked = 0
+            for src in cat.observations:
+                try:
+                    parser = REGISTRY.get(src.parser)
+                except KeyError:
+                    continue
+                for ref in parser.discover(Path(src.uri), None, None, None):
+                    try:
+                        prof = parser.load(ref)
+                    except Exception:
+                        continue
+                    depths = [
+                        d
+                        for d, v in zip(prof.depth, next(iter(prof.variables.values())).values)
+                        if v is not None
+                    ]
+                    if not depths:
+                        continue
+                    checked += 1
+                    if max(depths) > _seabed(prof.lon, prof.lat):
+                        offenders.append(f"{prof.platform}:{prof.id}")
+            c.check(
+                not offenders,
+                "observations: none sample below the seabed",
+                f"{checked} profiles checked"
+                + (f"; offenders: {offenders[:3]}" if offenders else ""),
+            )
+        except Exception as exc:
+            c.check(False, "observations: seabed consistency", str(exc))
+
     # --- end-to-end: does the matchup recover the injected bias? ---
     #
     # The single most valuable check in the project, and it exists only because

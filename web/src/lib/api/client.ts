@@ -173,6 +173,22 @@ export const api = {
     return `/api/volume?${p}`;
   },
 
-  tileUrl: (variable: string, time: string, depth: number) =>
-    `/tiles/${variable}/${encodeURIComponent(time || "latest")}/${depth}/{z}/{x}/{y}.png`,
+  tileUrl: (
+    variable: string,
+    time: string,
+    depth: number,
+    display?: { range?: [number, number]; log?: boolean; colormap?: string },
+  ) => {
+    const base = `/tiles/${variable}/${encodeURIComponent(time || "latest")}/${depth}/{z}/{x}/{y}.png`;
+    if (!display) return base;
+    const p = new URLSearchParams();
+    if (display.range) {
+      p.set("vmin", String(display.range[0]));
+      p.set("vmax", String(display.range[1]));
+    }
+    if (display.log !== undefined) p.set("log", String(display.log));
+    if (display.colormap) p.set("cmap", display.colormap);
+    const qs = p.toString();
+    return qs ? `${base}?${qs}` : base;
+  },
 };

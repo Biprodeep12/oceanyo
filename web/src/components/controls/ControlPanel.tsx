@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { cssGradient } from "@/lib/color/colormaps";
+import ColorbarEditor from "./ColorbarEditor";
 import { probeGpu, type GpuCaps } from "@/three/caps";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 
@@ -84,20 +84,9 @@ export default function ControlPanel() {
             </option>
           ))}
         </select>
-        {varMeta && (
-          <div
-            className="mt-2 h-2 w-full rounded"
-            style={{ background: cssGradient(varMeta.colormap) }}
-            title={`${varMeta.colormap} colormap`}
-          />
-        )}
-        {varMeta && (
-          <div className="mt-0.5 flex justify-between font-mono text-[9px] text-slate-500">
-            <span>{varMeta.validRange[0]}</span>
-            <span>{varMeta.units}</span>
-            <span>{varMeta.validRange[1]}</span>
-          </div>
-        )}
+        <div className="mt-2">
+          <ColorbarEditor />
+        </div>
       </Section>
 
       <Section title="Depth">
@@ -156,7 +145,37 @@ export default function ControlPanel() {
           <Section title="Layers">
             <Toggle checked={s.showVolume} onChange={() => s.toggle("showVolume")} label="Volume" />
             <Toggle checked={s.showSlice} onChange={() => s.toggle("showSlice")} label="Depth plane" />
-            <Toggle checked={s.showParticles} onChange={() => s.toggle("showParticles")} label="Currents" />
+            <Toggle
+              checked={s.showParticles}
+              onChange={() => s.toggle("showParticles")}
+              label="Currents"
+            />
+            {s.showParticles && (
+              <div className="mb-1 text-[9px] leading-relaxed text-slate-500">
+                flow direction and relative speed are the model&apos;s; playback
+                is time-compressed
+              </div>
+            )}
+            <Toggle
+              checked={s.showIsosurface}
+              onChange={() => s.toggle("showIsosurface")}
+              label="Isosurface"
+            />
+            {s.showIsosurface && varMeta && (
+              <div className="mt-1.5">
+                <Slider
+                  label={`iso level (${varMeta.units})`}
+                  value={s.isoLevel}
+                  min={Math.round(varMeta.validRange[0])}
+                  max={Math.round(varMeta.validRange[1])}
+                  step={0.5}
+                  onChange={s.setIsoLevel}
+                />
+                <div className="mt-0.5 text-[9px] leading-relaxed text-slate-500">
+                  server-side marching cubes, returned as glTF
+                </div>
+              </div>
+            )}
           </Section>
         </>
       )}

@@ -24,6 +24,12 @@ page.on("console", (m) => {
   if (m.type() === "error") errors.push(m.text());
 });
 page.on("pageerror", (e) => errors.push(`PAGEERROR: ${e.message}`));
+const requests = [];
+const badResponses = [];
+page.on("request", (r) => requests.push(r.url()));
+page.on("response", (r) => {
+  if (r.status() >= 400) badResponses.push(`${r.status()} ${r.url()}`);
+});
 page.on("requestfailed", (r) =>
   failedRequests.push(`${r.method()} ${r.url()} :: ${r.failure()?.errorText}`),
 );
@@ -142,11 +148,65 @@ await step("matchup statistics shown", async () => {
   await page.getByText("Bias", { exact: true }).waitFor({ timeout: 10000 });
   await page.getByText("RMSE", { exact: true }).waitFor({ timeout: 5000 });
   const stats = await page.evaluate(() => document.body.innerText);
-  const m = stats.match(/Bias\s+([+\-0-9.]+)/);
+  const m = stats.match(/BIAS\s*\n?\s*([+\-0-9.]+)/i);
   console.log(`
       reported bias: ${m ? m[1] : "?"}`);
   process.stdout.write(" ".repeat(40));
   await page.screenshot({ path: `${OUT}/05-matchup.png` });
+});
+
+await step("isosurface renders", async () => {
+  await page.getByLabel("Isosurface").check();
+  const ok = await page
+    .waitForResponse((r) => r.url().includes("/api/isosurface") && r.status() === 200, {
+      timeout: 30000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  if (!ok) throw new Error("no successful isosurface response");
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: `${OUT}/06-isosurface.png` });
+  await page.getByLabel("Isosurface").uncheck();
+});
+
+await step("current particles advecting", async () => {
+  // The velocity texture and its decode metadata must both arrive, or the
+  // advection shader has nothing to sample.
+  const meta = requests.filter((u) => u.includes("/api/currents") && u.includes("fmt=meta"));
+  const png = requests.filter((u) => u.includes("/api/currents") && !u.includes("fmt=meta"));
+  if (!meta.length || !png.length) {
+    throw new Error(`currents meta=${meta.length} png=${png.length}`);
+  }
+  await page.screenshot({ path: `${OUT}/07-particles.png` });
+});
+
+await step("colorbar drives tiles", async () => {
+  await page.getByRole("button", { name: "Back to map" }).click();
+  await page.waitForTimeout(900);
+  await page.getByRole("button", { name: /Edit colour scale/ }).click();
+  const min = page.locator("input[type=number]").first();
+  const max = page.locator("input[type=number]").nth(1);
+  await min.fill("24");
+  await min.press("Enter");
+  await max.fill("30");
+  await max.press("Enter");
+  await page.waitForTimeout(2500);
+  const scoped = requests.filter((u) => u.includes("vmin=24") && u.includes("vmax=30"));
+  if (!scoped.length) throw new Error("no tiles requested with the edited range");
+  await page.screenshot({ path: `${OUT}/09-colorbar.png` });
+});
+
+await step("glider tracks in the water column", async () => {
+  await page.getByRole("button", { name: "East of Sri Lanka", exact: true }).click();
+  await page.getByRole("button", { name: "Dive" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("drag to orbit"), {
+    timeout: 45000,
+  });
+  await page.waitForTimeout(4000);
+  if (!requests.some((u) => u.includes("/api/profile/glider"))) {
+    throw new Error("no glider trajectory fetched");
+  }
+  await page.screenshot({ path: `${OUT}/11-gliders.png` });
 });
 
 await step("back to map", async () => {
@@ -157,6 +217,8 @@ await step("back to map", async () => {
 
 console.log("\nconsole errors:", errors.length);
 for (const e of errors.slice(0, 12)) console.log("   -", e.slice(0, 220));
+console.log("non-2xx responses:", badResponses.length);
+for (const b of badResponses.slice(0, 8)) console.log("   -", b.slice(0, 220));
 console.log("failed requests:", failedRequests.length);
 for (const r of failedRequests.slice(0, 8)) console.log("   -", r.slice(0, 220));
 

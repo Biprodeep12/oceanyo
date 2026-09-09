@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ...core.conventions import CANONICAL
 from ...core.geometry import BBox
@@ -39,6 +39,10 @@ def _blank_tile() -> Response:
 @router.get("/tiles/{variable}/{time}/{depth}/{z}/{x}/{y}.png")
 def tile(
     variable: str, time: str, depth: float, z: int, x: int, y: int,
+    vmin: float | None = Query(None, description="colour range low; defaults to the variable range"),
+    vmax: float | None = Query(None, description="colour range high"),
+    log: bool | None = Query(None, description="log scale; defaults to the variable default"),
+    cmap: str | None = Query(None, description="colormap name override"),
     store: DataStore = Depends(get_store),
 ) -> Response:
     """One 256x256 map tile.
@@ -86,10 +90,10 @@ def tile(
 
     png = raster.colormap_png(
         grid,
-        vmin=cv.valid[0],
-        vmax=cv.valid[1],
-        cmap=cv.cmap,
-        log=cv.log,
+        vmin=cv.valid[0] if vmin is None else vmin,
+        vmax=cv.valid[1] if vmax is None else vmax,
+        cmap=cmap or cv.cmap,
+        log=cv.log if log is None else log,
         flip_y=False,  # px_lat already runs north -> south
     )
     return Response(

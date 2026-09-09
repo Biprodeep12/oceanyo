@@ -42,6 +42,15 @@ uniform vec2  uClipY;           // visible vertical slab, in local Y
 // for a value that is constant across the whole draw call.
 uniform vec3  uCamLocal;
 
+// Quantization inverse: physical value = raw * uScale255 + uOffset, where raw
+// is the 0..1 value WebGL produced by normalizing the uint8 texel.
+uniform float uScale255;
+uniform float uOffset;
+// User-chosen colour range and scaling, so the colorbar editor drives the
+// volume and the map tiles identically.
+uniform vec2  uDisplay;   // (low, high) in physical units
+uniform float uLog;       // 1.0 = log scale
+
 // Ray/AABB slab test in local space.
 vec2 intersectBox(vec3 origin, vec3 dir, vec3 boxMin, vec3 boxMax) {
   vec3 invDir = 1.0 / dir;
@@ -80,9 +89,23 @@ void main() {
       // Raw 0 is the reserved fill value: land, or below the seabed. Skipping
       // it here is why no separate mask texture is needed.
       if (raw > 0.0031) {
-        float t = clamp((raw - uThreshold) / max(1.0 - uThreshold, 0.001), 0.0, 1.0);
+        // Raw -> physical units -> position within the user's colour range.
+        float value = raw * uScale255 + uOffset;
+        float lo = uDisplay.x;
+        float hi = uDisplay.y;
+        float cn;
+        if (uLog > 0.5) {
+          float floorV = max(lo, 1e-4);
+          cn = (log2(max(value, floorV)) - log2(floorV))
+             / max(log2(max(hi, floorV * 10.0)) - log2(floorV), 1e-6);
+        } else {
+          cn = (value - lo) / max(hi - lo, 1e-6);
+        }
+        cn = clamp(cn, 0.0, 1.0);
+
+        float t = clamp((cn - uThreshold) / max(1.0 - uThreshold, 0.001), 0.0, 1.0);
         if (t > 0.0) {
-          vec3 rgb = texture(uColormap, vec2(raw, 0.5)).rgb;
+          vec3 rgb = texture(uColormap, vec2(cn, 0.5)).rgb;
           // Opacity ramps with the transfer function so weak values stay sheer.
           float alpha = t * uOpacity * (1.6 / float(MAX_STEPS)) * 40.0;
           alpha = clamp(alpha, 0.0, 1.0);

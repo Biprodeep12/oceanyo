@@ -21,6 +21,10 @@ router = APIRouter(prefix="/api", tags=["fields"])
 @router.get("/slice")
 def slice_field(
     fmt: str = Query("json", pattern="^(json|png)$"),
+    vmin: float | None = Query(None),
+    vmax: float | None = Query(None),
+    log: bool | None = Query(None),
+    cmap: str | None = Query(None),
     q: FieldQuery = Depends(field_query),
     store: DataStore = Depends(get_store),
 ):
@@ -33,7 +37,11 @@ def slice_field(
 
     if fmt == "png":
         png = raster.colormap_png(
-            plane, vmin=cv.valid[0], vmax=cv.valid[1], cmap=cv.cmap, log=cv.log
+            plane,
+            vmin=cv.valid[0] if vmin is None else vmin,
+            vmax=cv.valid[1] if vmax is None else vmax,
+            cmap=cmap or cv.cmap,
+            log=cv.log if log is None else log,
         )
         return Response(content=png, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=3600"})

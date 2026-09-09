@@ -88,3 +88,34 @@ def water_mask(elev: np.ndarray, depths: np.ndarray) -> np.ndarray:
     """
     seabed_depth = -elev  # positive down; negative over land
     return (depths[:, None, None] <= seabed_depth[None, :, :]) & (seabed_depth[None, :, :] > 0)
+
+
+# --- shared seabed sampling ------------------------------------------------
+#
+# The instrument generators and the published gebco.nc MUST agree about where
+# the seafloor is. They previously did not: the generators sampled the model
+# grid while write_bathymetry emitted a grid at half that step, so a float
+# could clear the seabed on the coarse grid and sit below it on the fine one.
+# Both now go through here.
+
+def published_grid(profile: GridProfile) -> tuple[np.ndarray, np.ndarray]:
+    """Axes of the emitted bathymetry product. Must match writer.write_bathymetry."""
+    step = profile.resolution / 2.0
+    lon = np.round(np.arange(profile.west, profile.east + 1e-9, step), 6)
+    lat = np.round(np.arange(profile.south, profile.north + 1e-9, step), 6)
+    return lon, lat
+
+
+def seabed_sampler(profile: GridProfile, cache: dict, *, seed: int = 7):
+    """Return a function (lon, lat) -> seabed depth, positive down."""
+    if "grid" not in cache:
+        lons, lats = published_grid(profile)
+        cache["grid"] = (lons, lats, elevation(lons, lats, profile, seed=seed))
+    lons, lats, elev = cache["grid"]
+
+    def depth_at(lon: float, lat: float) -> float:
+        i = int(np.clip(np.searchsorted(lats, lat) - 1, 0, len(lats) - 1))
+        j = int(np.clip(np.searchsorted(lons, lon) - 1, 0, len(lons) - 1))
+        return float(-elev[i, j])
+
+    return depth_at

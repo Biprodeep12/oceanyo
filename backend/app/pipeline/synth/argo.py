@@ -24,7 +24,7 @@ import pandas as pd
 import xarray as xr
 
 from . import fields
-from .bathymetry import elevation
+from .bathymetry import seabed_sampler
 from .grid import GridProfile
 
 log = logging.getLogger(__name__)
@@ -45,18 +45,6 @@ INJECTED_BIAS = {"TEMP": -0.30, "PSAL": +0.05}
 
 CYCLE_DAYS = 10.0
 PARK_DEPTH = 1000.0
-
-
-def _seabed_depth(lon: float, lat: float, gp: GridProfile, cache: dict) -> float:
-    """Seabed depth (positive down) at a point, from the synthetic bathymetry."""
-    if "grid" not in cache:
-        lons = np.arange(gp.west, gp.east + 1e-9, gp.resolution)
-        lats = np.arange(gp.south, gp.north + 1e-9, gp.resolution)
-        cache["grid"] = (lons, lats, elevation(lons, lats, gp, seed=7))
-    lons, lats, elev = cache["grid"]
-    i = int(np.clip(np.searchsorted(lats, lat) - 1, 0, len(lats) - 1))
-    j = int(np.clip(np.searchsorted(lons, lon) - 1, 0, len(lons) - 1))
-    return float(-elev[i, j])
 
 
 def _drift(lon: float, lat: float, day: float, days: float, domain) -> tuple[float, float]:
@@ -85,6 +73,7 @@ def write_floats(
     outdir.mkdir(parents=True, exist_ok=True)
     cache: dict = {}
     dom = gp.domain()
+    seabed_at = seabed_sampler(gp, cache, seed=seed)
 
     t0 = pd.Timestamp(gp.start)
     span_days = float(gp.n_steps - 1)
@@ -96,7 +85,7 @@ def write_floats(
         for _ in range(60):
             lon = float(rng.uniform(gp.west + 0.5, gp.east - 0.5))
             lat = float(rng.uniform(gp.south + 0.5, gp.north - 0.5))
-            if _seabed_depth(lon, lat, gp, cache) > 250.0:
+            if seabed_at(lon, lat) > 250.0:
                 break
 
         # A few floats carry an extra instrument drift term.
@@ -128,7 +117,7 @@ def write_floats(
             lons[p], lats[p] = clon, clat
             juld[p] = (t0 + pd.Timedelta(days=float(day)) - JULD_EPOCH).total_seconds() / 86400.0
 
-            seabed = _seabed_depth(clon, clat, gp, cache)
+            seabed = seabed_at(clon, clat)
             valid = PRES_LEVELS <= min(2000.0, seabed - 10.0)
             if not valid.any():
                 continue

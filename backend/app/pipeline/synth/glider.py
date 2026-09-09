@@ -19,6 +19,7 @@ import pandas as pd
 import xarray as xr
 
 from . import fields
+from .bathymetry import seabed_sampler
 from .grid import GridProfile
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,11 @@ log = logging.getLogger(__name__)
 JULD_EPOCH = pd.Timestamp("1950-01-01")
 
 INJECTED_BIAS = {"TEMP": -0.18, "PSAL": +0.03}
+
+# Clearance kept above the seabed. A glider that samples through the seafloor
+# is a visible physical error in the 3D view, and the flight path is drawn as a
+# sawtooth down to the deepest good level.
+SEABED_CLEARANCE = 20.0
 
 
 def write_deployments(
@@ -35,6 +41,8 @@ def write_deployments(
     outdir.mkdir(parents=True, exist_ok=True)
     t0 = pd.Timestamp(gp.start)
     dom = gp.domain()
+    cache: dict = {}
+    seabed_at = seabed_sampler(gp, cache, seed=seed)
     written: list[Path] = []
 
     for d in range(n_deployments):
@@ -79,20 +87,34 @@ def write_deployments(
             juld[p] = (t0 + pd.Timedelta(hours=hours) - JULD_EPOCH).total_seconds() / 86400.0
             direction[p] = b"D" if p % 2 == 0 else b"A"
 
+            # A glider cannot fly below the seafloor: clip the dive to the
+            # local seabed, which in shallow water is well above max_depth.
+            seabed = seabed_at(lon, lat)
+            valid = levels <= min(max_depth, seabed - SEABED_CLEARANCE)
+            if not valid.any():
+                continue
+
             lon2 = np.array([[lon]])
             lat2 = np.array([[lat]])
-            z = levels.astype(float)
+            z = levels[valid].astype(float)
             t_true = fields.temperature(lon2, lat2, z, day, dom)[:, 0, 0]
             s_true = fields.salinity(lon2, lat2, z, day, dom)[:, 0, 0]
 
-            w = rng.standard_normal(n_lev)
-            smooth = np.convolve(w, np.ones(5) / 5.0, mode="same")
-            temp[p] = (t_true + INJECTED_BIAS["TEMP"] + smooth * 0.05).astype(np.float32)
-            psal[p] = (s_true + INJECTED_BIAS["PSAL"] + smooth * 0.012).astype(np.float32)
+            n_valid = int(valid.sum())
+            w = rng.standard_normal(n_valid)
+            width = min(5, n_valid)
+            smooth = (
+                np.convolve(w, np.ones(width) / width, mode="same")[:n_valid]
+                if width >= 2
+                else w
+            )
+            temp[p, valid] = (t_true + INJECTED_BIAS["TEMP"] + smooth * 0.05).astype(np.float32)
+            psal[p, valid] = (s_true + INJECTED_BIAS["PSAL"] + smooth * 0.012).astype(np.float32)
 
             # Gliders lose data at the deepest part of a dive fairly often.
             if rng.random() < 0.25:
-                cut = int(n_lev * rng.uniform(0.82, 0.97))
+                idx = np.where(valid)[0]
+                cut = idx[int(len(idx) * rng.uniform(0.82, 0.97))]
                 temp[p, cut:] = np.nan
                 psal[p, cut:] = np.nan
 
