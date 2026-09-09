@@ -13,6 +13,8 @@
 // without disposing it will crash a laptop mid-demo.
 
 import { create } from "zustand";
+
+import { applyTheme, type Theme } from "@/lib/theme";
 import type {
   BBox,
   HealthResponse,
@@ -44,6 +46,7 @@ export interface SessionState {
   coastline: GeoJSON.FeatureCollection | null;
   /** Timesteps whose coarse volume is already decoded and on the GPU. */
   bufferedTimes: string[];
+  theme: Theme;
 
   // --- current field selection ---
   variable: string;
@@ -109,6 +112,7 @@ export interface SessionState {
   setDomain: (b: BBox | null) => void;
   setCoastline: (fc: GeoJSON.FeatureCollection | null) => void;
   setBufferedTimes: (t: string[]) => void;
+  setTheme: (t: Theme) => void;
   setVariable: (v: string) => void;
   setDepth: (d: number) => void;
   setTimeIndex: (i: number) => void;
@@ -155,7 +159,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   times: [],
   domain: null,
   coastline: null,
+  // Dark until the client reports otherwise; see initialTheme().
   bufferedTimes: [],
+  theme: "dark" as Theme,
 
   variable: "temperature",
   depth: 0,
@@ -201,6 +207,10 @@ export const useSessionStore = create<SessionState>((set) => ({
   setDomain: (domain) => set({ domain }),
   setCoastline: (coastline) => set({ coastline }),
   setBufferedTimes: (bufferedTimes) => set({ bufferedTimes }),
+  setTheme: (theme) => {
+    applyTheme(theme);
+    set({ theme });
+  },
   setVariable: (variable) => set({ variable }),
   setDepth: (depth) => set({ depth }),
   setTimeIndex: (timeIndex) => set({ timeIndex }),

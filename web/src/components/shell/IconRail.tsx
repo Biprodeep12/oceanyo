@@ -14,9 +14,11 @@ import {
   IconInfo,
   IconLayers,
   IconMinus,
+  IconMoon,
   IconPlus,
   IconRegion,
   IconSettings,
+  IconSun,
 } from "@/components/ui/icons";
 import { useIsMobile } from "@/state/useMediaQuery";
 import { probeGpu, type GpuCaps } from "@/three/caps";
@@ -60,6 +62,8 @@ export default function IconRail() {
   const setExaggeration = useSessionStore((s) => s.setExaggeration);
   const setOpacity = useSessionStore((s) => s.setOpacity);
   const setAnomalyLimit = useSessionStore((s) => s.setAnomalyLimit);
+  const theme = useSessionStore((s) => s.theme);
+  const setTheme = useSessionStore((s) => s.setTheme);
   const phase = useSessionStore((s) => s.phase);
   const drawMode = useSessionStore((s) => s.drawMode);
   const setDrawMode = useSessionStore((s) => s.setDrawMode);
@@ -108,6 +112,29 @@ export default function IconRail() {
 
           {open === "settings" && (
             <Popover title="Settings" onClose={() => setOpen(null)}>
+              <div className="flex items-center gap-1.5 px-4 pb-1 pt-1">
+                {(["dark", "light"] as const).map((t) => (
+                  <button
+                    key={t}
+                    className="ze-btn flex items-center gap-1.5 !px-2.5 !py-1 !text-[11px]"
+                    data-active={theme === t ? "true" : "false"}
+                    aria-pressed={theme === t}
+                    onClick={() => setTheme(t)}
+                  >
+                    {t === "dark" ? (
+                      <IconMoon className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconSun className="h-3.5 w-3.5" />
+                    )}
+                    {t === "dark" ? "Dark" : "Light"}
+                  </button>
+                ))}
+              </div>
+              <div className="px-4 pb-2 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
+                The colour scales do not change with the theme. They are
+                scientific scales with published meanings and the colour bar is
+                their legend.
+              </div>
               <Slider
                 label="vertical exaggeration"
                 value={exaggeration}

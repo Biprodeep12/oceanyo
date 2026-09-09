@@ -26,6 +26,7 @@ import { shortLabel } from "@/lib/variableLabels";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { usePointer } from "@/state/usePointer";
 import { openProfile } from "@/lib/api/openProfile";
+import { token, tokenNumber } from "@/lib/theme";
 import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
@@ -164,6 +165,7 @@ export default function MapView({ visible }: { visible: boolean }) {
 
   const domain = useSessionStore((s) => s.domain);
   const times = useSessionStore((s) => s.times);
+  const theme = useSessionStore((s) => s.theme);
   const variable = useSessionStore((s) => s.variable);
   const depth = useSessionStore((s) => s.depth);
   const selection = useSessionStore((s) => s.selection);
@@ -459,6 +461,27 @@ export default function MapView({ visible }: { visible: boolean }) {
       m.off("resize", fit);
     };
   }, [ready, domain]);
+
+  // --- theme: repaint the layers MapLibre owns ---
+  //
+  // MapLibre takes literal values, not var(--x). The land raster needs more
+  // than a colour swap: dimmed and desaturated it reads as context under a dark
+  // field, but the same treatment on a light ground turns the continents into
+  // grey mud. Opacity, saturation and brightness are all tokens.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    try {
+      m.setPaintProperty("background", "background-color", token("--ze-ocean", "#06121c"));
+      m.setPaintProperty("basemap", "raster-opacity", tokenNumber("--ze-basemap-opacity", 0.42));
+      m.setPaintProperty("basemap", "raster-saturation", tokenNumber("--ze-basemap-saturation", -0.55));
+      m.setPaintProperty("basemap", "raster-brightness-max", tokenNumber("--ze-basemap-brightness", 0.8));
+      m.setPaintProperty("land-fill", "fill-color", token("--ze-land", "#16232e"));
+      m.setPaintProperty("land-line", "line-color", token("--ze-land-edge", "#22384a"));
+    } catch {
+      /* a layer this style does not have is not an error worth surfacing */
+    }
+  }, [theme, ready]);
 
   // --- click an instrument on the MAP, not only in the block ---
   useEffect(() => {

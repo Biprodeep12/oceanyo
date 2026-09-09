@@ -81,21 +81,21 @@ function ProfileChart() {
         <g key={d}>
           <line
             x1={chart.L} x2={chart.W - 8} y1={chart.y(d)} y2={chart.y(d)}
-            stroke="#1e3244" strokeWidth={1}
+            stroke="var(--ze-grid)" strokeWidth={1}
           />
-          <text x={4} y={chart.y(d) + 3} fill="#64798c" fontSize={9} fontFamily="monospace">
+          <text x={4} y={chart.y(d) + 3} fill="var(--ze-chart-text)" fontSize={9} fontFamily="monospace">
             {d}
           </text>
         </g>
       ))}
-      <text x={4} y={chart.H - 4} fill="#64798c" fontSize={9}>m</text>
-      <path d={chart.model} fill="none" stroke="#4fd1c5" strokeWidth={1.8} opacity={0.95} />
-      <path d={chart.obs} fill="none" stroke="#f0b429" strokeWidth={1.8} opacity={0.95} />
+      <text x={4} y={chart.H - 4} fill="var(--ze-chart-text)" fontSize={9}>m</text>
+      <path d={chart.model} fill="none" stroke="var(--ze-series-model)" strokeWidth={1.8} opacity={0.95} />
+      <path d={chart.obs} fill="none" stroke="var(--ze-series-obs)" strokeWidth={1.8} opacity={0.95} />
       <g transform={`translate(${chart.L + 4}, ${chart.H - 12})`}>
-        <line x1={0} x2={14} y1={-3} y2={-3} stroke="#4fd1c5" strokeWidth={2} />
-        <text x={18} y={0} fill="#8fa6b8" fontSize={9}>model</text>
-        <line x1={58} x2={72} y1={-3} y2={-3} stroke="#f0b429" strokeWidth={2} />
-        <text x={76} y={0} fill="#8fa6b8" fontSize={9}>
+        <line x1={0} x2={14} y1={-3} y2={-3} stroke="var(--ze-series-model)" strokeWidth={2} />
+        <text x={18} y={0} fill="var(--ze-chart-label)" fontSize={9}>model</text>
+        <line x1={58} x2={72} y1={-3} y2={-3} stroke="var(--ze-series-obs)" strokeWidth={2} />
+        <text x={76} y={0} fill="var(--ze-chart-label)" fontSize={9}>
           {profile?.platform ?? "obs"}
         </text>
       </g>
@@ -167,8 +167,8 @@ function TaylorDiagram() {
         const [lx, ly] = g.pt(g.maxSd * 1.06, c);
         return (
           <g key={c}>
-            <line x1={g.L} y1={g.B} x2={x} y2={y} stroke="#1e3244" strokeWidth={1} />
-            <text x={lx} y={ly} fill="#64798c" fontSize={8} fontFamily="monospace"
+            <line x1={g.L} y1={g.B} x2={x} y2={y} stroke="var(--ze-grid)" strokeWidth={1} />
+            <text x={lx} y={ly} fill="var(--ze-chart-text)" fontSize={8} fontFamily="monospace"
               textAnchor="middle" dominantBaseline="middle">
               {c}
             </text>
@@ -178,30 +178,30 @@ function TaylorDiagram() {
       {/* normalised standard-deviation arcs; the sd=1 arc is the reference */}
       {sdRings.map((s) => (
         <path key={s} d={g.arc(s)} fill="none"
-          stroke={s === 1 ? "#3b5a72" : "#1e3244"}
+          stroke={s === 1 ? "var(--ze-grid-strong)" : "var(--ze-grid)"}
           strokeWidth={1}
           strokeDasharray={s === 1 ? "3 3" : undefined} />
       ))}
       {/* centred-RMSE arcs, centred on the reference point */}
       {[0.5, 1].map((e) => (
-        <circle key={e} cx={rx} cy={ry} r={e * g.R} fill="none" stroke="#2a4a3c"
+        <circle key={e} cx={rx} cy={ry} r={e * g.R} fill="none" stroke="var(--ze-chart-ring)"
           strokeWidth={1} strokeDasharray="2 4" />
       ))}
       {/* reference: a perfect model */}
-      <circle cx={rx} cy={ry} r={3.5} fill="#8fa6b8" />
-      <text x={rx} y={ry + 13} fill="#8fa6b8" fontSize={8} textAnchor="middle">REF</text>
+      <circle cx={rx} cy={ry} r={3.5} fill="var(--ze-chart-label)" />
+      <text x={rx} y={ry + 13} fill="var(--ze-chart-label)" fontSize={8} textAnchor="middle">REF</text>
       {/* the model */}
-      <circle cx={mx} cy={my} r={4.5} fill="#4fd1c5" stroke="#0b1b26" strokeWidth={1.2} />
-      <text x={4} y={12} fill="#64798c" fontSize={8} fontFamily="monospace">
+      <circle cx={mx} cy={my} r={4.5} fill="var(--ze-series-model)" stroke="var(--ze-panel-solid)" strokeWidth={1.2} />
+      <text x={4} y={12} fill="var(--ze-chart-text)" fontSize={8} fontFamily="monospace">
         sd*={g.sd.toFixed(2)}
       </text>
-      <text x={4} y={22} fill="#64798c" fontSize={8} fontFamily="monospace">
+      <text x={4} y={22} fill="var(--ze-chart-text)" fontSize={8} fontFamily="monospace">
         r={g.corr.toFixed(3)}
       </text>
-      <text x={g.W - 4} y={g.H - 4} fill="#64798c" fontSize={8} textAnchor="end">
+      <text x={g.W - 4} y={g.H - 4} fill="var(--ze-chart-text)" fontSize={8} textAnchor="end">
         correlation
       </text>
-      <text x={4} y={g.B + 12} fill="#64798c" fontSize={8}>sd / sd_obs</text>
+      <text x={4} y={g.B + 12} fill="var(--ze-chart-text)" fontSize={8}>sd / sd_obs</text>
     </svg>
   );
 }

@@ -104,14 +104,14 @@ export default function LocatorInset() {
           width={g.x(de) - g.x(dw)}
           height={g.y(ds) - g.y(dn)}
           fill="none"
-          stroke="#2a4055"
+          stroke="var(--ze-grid)"
           strokeWidth={1}
         />
         {/* Land needs to read at 104px. #16232e on the #06121c ocean is a
             two-step difference in value and disappears entirely at this size,
             which makes the inset look like an empty box. */}
         {g.paths.map((d, i) => (
-          <path key={i} d={d} fill="#26384a" stroke="#43617d" strokeWidth={0.6} />
+          <path key={i} d={d} fill="var(--ze-land)" stroke="var(--ze-land-edge)" strokeWidth={0.6} />
         ))}
         {sel && sel.w > 0 && sel.h > 0 && (
           <rect
@@ -124,7 +124,7 @@ export default function LocatorInset() {
             strokeWidth={1.4}
           />
         )}
-        <text x={6} y={H - 5} fill="#8fa6b8" fontSize={8} fontFamily="monospace">
+        <text x={6} y={H - 5} fill="var(--ze-chart-label)" fontSize={8} fontFamily="monospace">
           {phase === "block" ? "block" : "domain"}
         </text>
       </svg>

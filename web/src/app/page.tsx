@@ -13,6 +13,7 @@ import StatusBar from "@/components/shell/StatusBar";
 import Timeline from "@/components/shell/Timeline";
 import MatchupPanel from "@/components/panels/MatchupPanel";
 import { api } from "@/lib/api/client";
+import { initialTheme } from "@/lib/theme";
 import { useIsTouch } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -39,6 +40,11 @@ export default function Page() {
   const rafRef = useRef<number | null>(null);
   // Telling a phone user to hold shift is worse than saying nothing.
   const touch = useIsTouch();
+
+  // --- theme, before anything paints ---
+  useEffect(() => {
+    useSessionStore.getState().setTheme(initialTheme());
+  }, []);
 
   // --- bootstrap the catalog ---
   useEffect(() => {

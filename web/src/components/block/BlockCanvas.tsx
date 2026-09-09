@@ -1,15 +1,20 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
 import { disposeAll } from "@/lib/loading/volumeStore";
+import { token } from "@/lib/theme";
 import { useSessionStore } from "@/state/useSessionStore";
 import BlockScene from "./BlockScene";
 
 export default function BlockCanvas({ visible }: { visible: boolean }) {
   const phase = useSessionStore((s) => s.phase);
+  const theme = useSessionStore((s) => s.theme);
+  // Recomputed on theme change; `theme` is the dependency even though it is
+  // not read, because the VALUE lives in CSS and only the theme moves it.
+  const sceneBg = useMemo(() => token("--ze-scene-bg", "#06121c"), [theme]);
 
   // Free every GPU texture when the block is left. Three lines, and it is what
   // stops the tenth region selection from crashing the demo laptop.
@@ -29,8 +34,10 @@ export default function BlockCanvas({ visible }: { visible: boolean }) {
         gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
         dpr={[1, 2]}
       >
-        <color attach="background" args={["#06121c"]} />
-        <fog attach="fog" args={["#06121c", 6, 16]} />
+        {/* three cannot parse var(--x), so the token is resolved here and
+            re-read whenever the theme changes. */}
+        <color attach="background" args={[sceneBg]} />
+        <fog attach="fog" args={[sceneBg, 6, 16]} />
         <Suspense fallback={null}>
           <BlockScene />
         </Suspense>
