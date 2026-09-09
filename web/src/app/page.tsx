@@ -12,6 +12,7 @@ import StatusBar from "@/components/shell/StatusBar";
 import Timeline from "@/components/shell/Timeline";
 import MatchupPanel from "@/components/panels/MatchupPanel";
 import { api } from "@/lib/api/client";
+import { useIsTouch } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
 // Both renderers touch window/WebGL, so neither can server-render.
@@ -28,11 +29,15 @@ export default function Page() {
   // animation reads it through getState().
   const phase = useSessionStore((st) => st.phase);
   const selection = useSessionStore((st) => st.selection);
+  const drawMode = useSessionStore((st) => st.drawMode);
+  const drawAnchor = useSessionStore((st) => st.drawAnchor);
   const variable = useSessionStore((st) => st.variable);
   const setPhase = useSessionStore((st) => st.setPhase);
   const setBlockProgress = useSessionStore((st) => st.setBlockProgress);
   const reset = useSessionStore((st) => st.reset);
   const rafRef = useRef<number | null>(null);
+  // Telling a phone user to hold shift is worse than saying nothing.
+  const touch = useIsTouch();
 
   // --- bootstrap the catalog ---
   useEffect(() => {
@@ -130,26 +135,27 @@ export default function Page() {
       <MapView visible={!inBlock} />
       <BlockCanvas visible={inBlock} />
 
-      <div className="pointer-events-auto absolute left-3 top-3 z-30">
+      <div className="pointer-events-auto absolute left-2 top-2 z-30 md:left-3 md:top-3">
         <Logo />
       </div>
-      <div className="pointer-events-auto absolute left-3 top-[78px] z-30 max-h-[calc(100dvh-190px)] overflow-y-auto">
+      <div className="pointer-events-auto z-40 md:absolute md:left-3 md:top-[78px] md:z-30 md:max-h-[calc(100dvh-190px)] md:overflow-y-auto">
         <LayersPanel />
       </div>
 
       <IconRail />
 
-      <div className="pointer-events-auto absolute right-[62px] top-3 z-30">
+      <div className="pointer-events-auto z-40 md:absolute md:right-[62px] md:top-3 md:z-30">
         <MatchupPanel />
       </div>
 
-      {/* bottom-left: colour scale, with coordinates beneath it */}
-      <div className="absolute bottom-7 left-3 z-20">
+      {/* colour scale: bottom-left on a desktop, a full-width strip above the
+          time bar on a phone, where there is no room beside it */}
+      <div className="absolute bottom-[92px] left-2 right-2 z-20 md:bottom-7 md:left-3 md:right-auto">
         <Legend />
       </div>
 
       {/* bottom-centre: time, and the one action that changes mode */}
-      <div className="pointer-events-none absolute bottom-6 left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2">
+      <div className="pointer-events-none absolute bottom-2 left-2 right-2 z-30 flex flex-col items-center gap-2 md:bottom-6 md:left-1/2 md:right-auto md:-translate-x-1/2">
         {settling && (
           <span className="ze-chip pointer-events-none">
             <span className="text-[color:var(--ze-text-dim)]">
@@ -157,13 +163,13 @@ export default function Page() {
             </span>
           </span>
         )}
-        <div className="flex items-end gap-2">
+        <div className="flex w-full items-stretch gap-2 md:w-auto md:items-end">
           <Timeline />
           {!inBlock ? (
             <button
               onClick={dive}
               disabled={!selection}
-              className="ze-btn ze-btn-primary pointer-events-auto h-[46px] px-6 text-[14px]"
+              className="ze-btn ze-btn-primary pointer-events-auto h-auto px-5 text-[14px] md:h-[46px] md:px-6"
               title={
                 selection
                   ? "Extrude the selected region into a 3D block"
@@ -175,20 +181,27 @@ export default function Page() {
           ) : (
             <button
               onClick={back}
-              className="ze-btn pointer-events-auto h-[46px] px-4 text-[13px]"
+              className="ze-btn pointer-events-auto h-auto px-4 text-[13px] md:h-[46px]"
             >
               Back to map
             </button>
           )}
         </div>
-        {!inBlock && !selection && (
-          <span className="ze-overlay-text pointer-events-none">
-            shift+drag on the map to choose a region
+        {!inBlock && (drawMode || !selection) && (
+          <span className="ze-overlay-text pointer-events-none text-center">
+            {drawMode
+              ? drawAnchor
+                ? "tap the opposite corner"
+                : "tap one corner of the region"
+              : touch
+                ? "tap Draw region, then two corners"
+                : "use Draw region, or shift+drag on the map"}
           </span>
         )}
         {phase === "block" && (
           <span className="ze-overlay-text pointer-events-none" data-testid="block-hint">
-            drag to orbit &middot; scroll to zoom &middot; click a float
+            drag to orbit &middot; {touch ? "pinch" : "scroll"} to zoom &middot;{" "}
+            {touch ? "tap" : "click"} a float
           </span>
         )}
       </div>

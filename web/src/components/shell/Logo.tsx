@@ -2,7 +2,7 @@
 
 export default function Logo() {
   return (
-    <div className="ze-panel flex items-center gap-2.5 px-3 py-2.5">
+    <div className="ze-panel flex items-center gap-2.5 px-2.5 py-2 md:px-3 md:py-2.5">
       <div
         className="grid h-9 w-9 flex-none place-items-center rounded-full"
         style={{
@@ -18,7 +18,9 @@ export default function Logo() {
           <path d="M6 7c4 0 3 4 6 4s3 5 6 5" />
         </svg>
       </div>
-      <div className="leading-tight">
+      {/* The wordmark is the first thing to go on a narrow screen: the
+          glyph still identifies the app and the map needs the width. */}
+      <div className="hidden leading-tight sm:block">
         <div className="text-[13px] font-semibold tracking-[0.14em] text-[color:var(--ze-text)]">
           OCEAN
         </div>

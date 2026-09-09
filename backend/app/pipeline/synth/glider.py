@@ -21,6 +21,7 @@ import xarray as xr
 from . import fields
 from .bathymetry import seabed_sampler
 from .grid import GridProfile
+from .qc import qc_chars
 
 log = logging.getLogger(__name__)
 
@@ -66,8 +67,10 @@ def write_deployments(
         pres = np.tile(levels, (n_prof, 1))
         temp = np.full((n_prof, n_lev), np.nan, dtype=np.float32)
         psal = np.full((n_prof, n_lev), np.nan, dtype=np.float32)
-        temp_qc = np.ones((n_prof, n_lev), dtype=np.int8)
-        psal_qc = np.ones((n_prof, n_lev), dtype=np.int8)
+        # Zero means "no QC performed"; the writer emits it as a blank
+        # character, which is what the EGO files on the GDAC contain.
+        temp_qc = np.zeros((n_prof, n_lev), dtype=np.int8)
+        psal_qc = np.zeros((n_prof, n_lev), dtype=np.int8)
         lats = np.zeros(n_prof)
         lons = np.zeros(n_prof)
         juld = np.zeros(n_prof)
@@ -110,6 +113,8 @@ def write_deployments(
             )
             temp[p, valid] = (t_true + INJECTED_BIAS["TEMP"] + smooth * 0.05).astype(np.float32)
             psal[p, valid] = (s_true + INJECTED_BIAS["PSAL"] + smooth * 0.012).astype(np.float32)
+            temp_qc[p, valid] = 1
+            psal_qc[p, valid] = 1
 
             # Gliders lose data at the deepest part of a dive fairly often.
             if rng.random() < 0.25:
@@ -139,8 +144,12 @@ def write_deployments(
                     "standard_name": "sea_water_temperature", "units": "degree_Celsius"}),
                 "PSAL": (("N_PROF", "N_LEVELS"), psal, {
                     "standard_name": "sea_water_salinity", "units": "psu"}),
-                "TEMP_QC": (("N_PROF", "N_LEVELS"), temp_qc),
-                "PSAL_QC": (("N_PROF", "N_LEVELS"), psal_qc),
+                "TEMP_QC": (("N_PROF", "N_LEVELS"), qc_chars(temp_qc), {
+                    "long_name": "quality flag",
+                    "conventions": "Argo reference table 2"}),
+                "PSAL_QC": (("N_PROF", "N_LEVELS"), qc_chars(psal_qc), {
+                    "long_name": "quality flag",
+                    "conventions": "Argo reference table 2"}),
             },
             attrs={
                 "Conventions": "EGO-1.5 CF-1.6",

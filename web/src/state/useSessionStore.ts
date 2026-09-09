@@ -46,6 +46,16 @@ export interface SessionState {
 
   // --- region selection ---
   selection: BBox | null;
+  /**
+   * Tap-to-draw mode. Shift+drag is impossible on a touch screen, so a region
+   * can also be set by tapping two opposite corners. Available everywhere, not
+   * just on mobile -- it is the discoverable way to do it either way.
+   */
+  drawMode: boolean;
+  /** Layers sheet visibility; only consulted on a phone. */
+  layersOpen: boolean;
+  /** First corner tapped, while the second is still to come. */
+  drawAnchor: [number, number] | null;
   depthRange: [number, number];
 
   // --- mode / transition ---
@@ -94,6 +104,9 @@ export interface SessionState {
   setDepth: (d: number) => void;
   setTimeIndex: (i: number) => void;
   setSelection: (b: BBox | null) => void;
+  setDrawMode: (v: boolean) => void;
+  setLayersOpen: (v: boolean) => void;
+  setDrawAnchor: (p: [number, number] | null) => void;
   setDepthRange: (r: [number, number]) => void;
   setPhase: (p: TransitionPhase) => void;
   setBlockProgress: (v: number) => void;
@@ -137,6 +150,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   timeIndex: 0,
 
   selection: null,
+  drawMode: false,
+  drawAnchor: null,
+  layersOpen: false,
   depthRange: [0, 2000],
 
   phase: "map",
@@ -174,6 +190,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   setDepth: (depth) => set({ depth }),
   setTimeIndex: (timeIndex) => set({ timeIndex }),
   setSelection: (selection) => set({ selection }),
+  setDrawMode: (drawMode) => set({ drawMode, drawAnchor: null }),
+  setDrawAnchor: (drawAnchor) => set({ drawAnchor }),
+  setLayersOpen: (layersOpen) => set({ layersOpen }),
   setDepthRange: (depthRange) => set({ depthRange }),
   setPhase: (phase) => set({ phase }),
   setBlockProgress: (blockProgress) => set({ blockProgress }),
@@ -227,6 +246,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       phase: "map",
       blockProgress: 0,
       selection: null,
+      drawMode: false,
+      drawAnchor: null,
       selectedProfile: null,
       matchup: null,
       playing: false,

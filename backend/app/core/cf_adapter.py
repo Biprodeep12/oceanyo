@@ -19,6 +19,7 @@ import xarray as xr
 
 from .conventions import CANONICAL, CanonicalVar, resolve
 from .geometry import BBox, DepthRange
+from .netcdf import open_dataset
 
 log = logging.getLogger(__name__)
 
@@ -109,19 +110,22 @@ class CFDataset:
         source: str,
         synthetic: bool,
         var_map: dict[str, str] | None = None,
-        engine: str | None = "h5netcdf",
+        engine: str | None = None,
         load: bool = True,
     ) -> "CFDataset":
         """Open a NetCDF file.
 
-        h5netcdf is the default engine deliberately: the netcdf4 engine's HDF5
-        file locking throws opaque errors on Windows when uvicorn --reload
-        spawns a second process while the first still holds the handle.
+        The engine is sniffed from the file's magic bytes unless the catalog
+        forces one. h5netcdf is preferred where both work: the netcdf4 engine's
+        HDF5 file locking throws opaque errors on Windows when uvicorn --reload
+        spawns a second process while the first still holds the handle. But it
+        cannot read NetCDF-3 classic at all, which is what the real Argo GDAC
+        serves -- so the choice has to be made per file, not per project.
         """
         path = Path(uri)
         if not path.exists():
             raise FileNotFoundError(f"dataset not found: {path}  (run: npm run synth)")
-        ds = xr.open_dataset(path, engine=engine)
+        ds = open_dataset(path, engine=engine)
         if load:
             # The whole synthetic dataset fits in RAM and there is exactly one
             # concurrent user, so an eager load beats lazy chunked reads here.

@@ -26,6 +26,7 @@ import xarray as xr
 from . import fields
 from .bathymetry import seabed_sampler
 from .grid import GridProfile
+from .qc import qc_chars
 
 log = logging.getLogger(__name__)
 
@@ -102,8 +103,10 @@ def write_floats(
         pres = np.tile(PRES_LEVELS, (n_prof, 1))
         temp = np.full((n_prof, n_lev), np.nan, dtype=np.float32)
         psal = np.full((n_prof, n_lev), np.nan, dtype=np.float32)
-        temp_qc = np.ones((n_prof, n_lev), dtype=np.int8)
-        psal_qc = np.ones((n_prof, n_lev), dtype=np.int8)
+        # Zero, not one: a level the float never sampled carries no QC at
+        # all, and the writer turns 0 into the blank character the GDAC uses.
+        temp_qc = np.zeros((n_prof, n_lev), dtype=np.int8)
+        psal_qc = np.zeros((n_prof, n_lev), dtype=np.int8)
         lats = np.zeros(n_prof, dtype=np.float64)
         lons = np.zeros(n_prof, dtype=np.float64)
         juld = np.zeros(n_prof, dtype=np.float64)
@@ -148,6 +151,8 @@ def write_floats(
             psal[p, valid] = (
                 s_true + INJECTED_BIAS["PSAL"] + _corr_noise(0.015)
             ).astype(np.float32)
+            temp_qc[p, valid] = 1
+            psal_qc[p, valid] = 1
 
             # A handful of genuinely bad points, flagged 4, so the QC filter has
             # something to actually filter.
@@ -181,8 +186,12 @@ def write_floats(
                     "standard_name": "sea_water_temperature", "units": "degree_Celsius"}),
                 "PSAL": (("N_PROF", "N_LEVELS"), psal, {
                     "standard_name": "sea_water_salinity", "units": "psu"}),
-                "TEMP_QC": (("N_PROF", "N_LEVELS"), temp_qc),
-                "PSAL_QC": (("N_PROF", "N_LEVELS"), psal_qc),
+                "TEMP_QC": (("N_PROF", "N_LEVELS"), qc_chars(temp_qc), {
+                    "long_name": "quality flag",
+                    "conventions": "Argo reference table 2"}),
+                "PSAL_QC": (("N_PROF", "N_LEVELS"), qc_chars(psal_qc), {
+                    "long_name": "quality flag",
+                    "conventions": "Argo reference table 2"}),
             },
             attrs={
                 "Conventions": "Argo-3.1 CF-1.6",

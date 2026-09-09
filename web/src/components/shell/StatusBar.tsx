@@ -30,14 +30,14 @@ export default function StatusBar() {
   return (
     <>
       {/* coordinates, under the legend */}
-      <div className="pointer-events-none absolute bottom-1.5 left-3 z-20">
+      <div className="pointer-events-none absolute bottom-1.5 left-3 z-20 hidden md:block">
         <span className="ze-overlay-text font-mono" data-testid="coords">
           {visible && phase !== "block" ? formatLatLon(lat, lon) : ""}
         </span>
       </div>
 
       {/* attribution */}
-      <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-20 -translate-x-1/2">
+      <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-20 hidden -translate-x-1/2 md:block">
         <span className="ze-overlay-text">
           &copy; oceanUps &middot; OpenStreetMap &middot; SYNTHETIC{" "}
           {time ? time.slice(0, 10) : ""}
@@ -45,7 +45,7 @@ export default function StatusBar() {
       </div>
 
       {/* provenance and standards */}
-      <div className="pointer-events-none absolute bottom-7 right-3 z-20 flex items-center gap-2">
+      <div className="pointer-events-none absolute bottom-[136px] right-2 z-20 flex items-center gap-2 md:bottom-7 md:right-3">
         {synthetic && (
           <Chip
             name="SYNTHETIC"
@@ -53,7 +53,9 @@ export default function StatusBar() {
             title={health?.source ?? "synthetically generated fields"}
           />
         )}
-        <Chip name="STANDARDS" detail={standards} title="Served CF / OGC surfaces" />
+        <span className="hidden md:inline-flex">
+          <Chip name="STANDARDS" detail={standards} title="Served CF / OGC surfaces" />
+        </span>
       </div>
     </>
   );

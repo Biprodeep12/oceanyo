@@ -310,3 +310,100 @@ body {
 .ze-inert * {
   pointer-events: none !important;
 }
+
+/* ------------------------------------------------------------------ mobile */
+
+/*
+  Below 768px the floating panels become sheets: full width, anchored to an
+  edge, and scrollable. A 248px panel and a 42px rail leave a phone with a
+  sliver of map, which is the one thing the layout exists to show.
+*/
+.ze-sheet {
+  /*
+    Nearly opaque, unlike the small floating panels. A sheet covers most of the
+    screen, and `backdrop-filter` does not survive the fixed positioning plus
+    entry animation here -- so the map showed straight through the menu and the
+    time bar underneath it stayed legible on top of the list.
+  */
+  background: rgba(18, 21, 25, 0.975);
+  box-shadow: 0 -6px 26px rgba(0, 0, 0, 0.5);
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: 62dvh;
+  overflow-y: auto;
+  border-radius: var(--ze-radius);
+  animation: ze-rise 180ms ease-out;
+}
+
+@keyframes ze-rise {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A grab handle, so a sheet reads as dismissable. */
+.ze-sheet-handle {
+  display: block;
+  width: 38px;
+  height: 4px;
+  margin: 8px auto 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+}
+
+@media (max-width: 767px) {
+  /* Touch targets: 38px rows are fine with a mouse and cramped with a thumb. */
+  .ze-row {
+    height: 44px;
+    font-size: 15px;
+  }
+  .ze-icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .ze-section-label {
+    margin-top: 10px;
+  }
+}
+
+/*
+  The map and the 3D canvas handle their own gestures. Without this the browser
+  claims vertical drags for page scrolling and the map stutters or refuses to
+  pan on the first drag of each gesture.
+*/
+.maplibregl-canvas-container,
+.ze-canvas-host canvas {
+  touch-action: none;
+}
+
+@media (max-width: 767px) {
+  /* Lift the scale bar clear of the time bar and the hint line. */
+  .maplibregl-ctrl-bottom-right {
+    bottom: 118px;
+    right: 8px;
+  }
+}
+
+/* Dim the map behind an open sheet, and catch the tap that dismisses it. */
+.ze-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  animation: ze-fade 160ms ease-out;
+}
+
+@keyframes ze-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -21,6 +21,8 @@ import xarray as xr
 
 from ....core.geometry import BBox
 from ....core.models import ObservationProfile, ParserCapabilities, ProfileVariable
+from ....core.netcdf import open_dataset
+from ..qc import decode_qc
 from ..registry import REGISTRY, ProfileRef
 from ..timeutil import juld_to_iso
 
@@ -70,7 +72,7 @@ class ArgoNetCDFParser:
 
         for path in sorted(root.glob("*.nc")):
             try:
-                with xr.open_dataset(path, engine="h5netcdf") as ds:
+                with open_dataset(path) as ds:
                     wmo = _scalar_str(ds, "PLATFORM_NUMBER", path.stem)
                     mode = _scalar_str(ds, "DATA_MODE", "R") or "R"
                     lats = np.atleast_1d(ds["LATITUDE"].values)
@@ -106,7 +108,7 @@ class ArgoNetCDFParser:
         return refs
 
     def load(self, ref: ProfileRef) -> ObservationProfile:
-        with xr.open_dataset(ref.path, engine="h5netcdf") as ds:
+        with open_dataset(ref.path) as ds:
             i = ref.index
             pres = np.atleast_2d(ds["PRES"].values)[i].astype(float)
             good_depth = np.isfinite(pres)
@@ -118,14 +120,14 @@ class ArgoNetCDFParser:
                 vals = np.atleast_2d(ds[raw].values)[i].astype(float)
                 qc_name = f"{raw}_QC"
                 if qc_name in ds:
-                    qc = np.atleast_2d(ds[qc_name].values)[i].astype(int)
+                    flags = decode_qc(np.atleast_2d(ds[qc_name].values)[i], len(vals))
                 else:
-                    qc = np.where(np.isfinite(vals), 1, 9)
+                    flags = [1 if np.isfinite(v) else 9 for v in vals]
                 keep = good_depth
                 variables[canonical] = ProfileVariable(
                     units=str(ds[raw].attrs.get("units", "")),
                     values=[None if not np.isfinite(v) else float(v) for v in vals[keep]],
-                    qc=[int(q) for q in qc[keep]],
+                    qc=[f for f, k in zip(flags, keep) if k],
                 )
 
             mode = _scalar_str(ds, "DATA_MODE", ref.data_mode) or "R"

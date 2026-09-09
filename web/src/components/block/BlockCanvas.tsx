@@ -21,7 +21,7 @@ export default function BlockCanvas({ visible }: { visible: boolean }) {
 
   return (
     <div
-      className={`absolute inset-0 transition-opacity duration-500${visible ? "" : " ze-inert"}`}
+      className={`ze-canvas-host absolute inset-0 transition-opacity duration-500${visible ? "" : " ze-inert"}`}
       style={{ opacity: visible ? 1 : 0 }}
     >
       <Canvas
@@ -39,7 +39,10 @@ export default function BlockCanvas({ visible }: { visible: boolean }) {
           enableDamping
           dampingFactor={0.08}
           minDistance={0.9}
-          maxDistance={9}
+          // Tall viewports and 10x vertical exaggeration both push the fitted
+          // camera well past the old 9-unit ceiling, which silently clamped
+          // the block to a cropped view it could not be zoomed out of.
+          maxDistance={24}
           makeDefault
         />
       </Canvas>

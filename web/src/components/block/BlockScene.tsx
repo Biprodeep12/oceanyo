@@ -371,7 +371,7 @@ export default function BlockScene() {
   } | null>(null);
   const [moving, setMoving] = useState(false);
   const movingTimer = useRef<number | null>(null);
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const lastCam = useRef(new THREE.Vector3());
 
   const frame = useMemo(
@@ -447,6 +447,31 @@ export default function BlockScene() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, depthRange, variable, time]);
 
+  // Frame the block to the viewport rather than to a fixed camera position.
+  //
+  // A phone is tall and narrow, so its HORIZONTAL field of view is a fraction
+  // of the vertical one, and a distance that frames the block on a desktop
+  // cuts it off at the sides. Fitting to whichever field of view is tighter
+  // works on both without special-casing either. Re-run on a new region or an
+  // orientation change, not on every resize, so it never yanks the camera out
+  // from under someone who is orbiting.
+  const portrait = size.height > size.width;
+  useEffect(() => {
+    if (!frame) return;
+    const [sx, sy, sz] = frame.size;
+    const radius = Math.hypot(sx, sy, sz) * 0.5;
+    const perspective = camera as THREE.PerspectiveCamera;
+    const vFov = (perspective.fov * Math.PI) / 180;
+    const aspect = size.width / Math.max(size.height, 1);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const distance = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 0.92;
+    const direction = new THREE.Vector3(0.62, 0.49, 0.72).normalize();
+    camera.position.copy(direction.multiplyScalar(distance));
+    camera.lookAt(0, 0, 0);
+    perspective.updateProjectionMatrix();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, portrait, exaggeration]);
+
   // The same rail buttons that zoom the map dolly this camera, so the control
   // means the same thing in both modes. Dollying along the view direction
   // rather than changing FOV keeps the perspective of the block stable.
@@ -454,7 +479,7 @@ export default function BlockScene() {
     const dolly = (factor: number) => {
       const target = new THREE.Vector3(0, 0, 0);
       const offset = camera.position.clone().sub(target);
-      const len = THREE.MathUtils.clamp(offset.length() * factor, 0.9, 9);
+      const len = THREE.MathUtils.clamp(offset.length() * factor, 0.9, 24);
       camera.position.copy(target).add(offset.setLength(len));
       camera.updateProjectionMatrix();
     };

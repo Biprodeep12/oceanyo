@@ -73,6 +73,28 @@ caught three real science bugs during development.
 - Mounted **fail-soft**: the API boots in seconds even if the standards stack
   fails, and `/api/health` reports what actually came up
 
+## 5b. Real data, not just a claim
+
+`npm run fetch:real` pulls genuine Argo profiles from the **INCOIS DAC** on the
+Ifremer GDAC and runs the same parser the synthetic files use:
+**840 profiles, 0 failures, 45,822 temperature levels**, QC histogram
+`{1: 44503, 3: 64, 4: 1255}`.
+
+It failed the first time, which is the point: real GDAC files are NetCDF-3
+classic (unreadable by `h5netcdf`) and store QC as characters with blanks
+(which killed 762 of 840 profiles on `.astype(int)`). Both are fixed, and the
+synthetic generator now writes the same encodings, so the two sides finally
+exercise one code path.
+
+## 5c. Runs on a phone
+
+Panels become dismissable sheets, the layer list moves behind a rail button,
+and regions are selected by **tapping two corners** -- shift+drag cannot exist
+on a touch screen, and without a replacement the 3D block would be unreachable.
+A tap probes the field where a mouse would hover, the block camera is fitted to
+the viewport rather than a fixed position, and the hints name the gesture the
+reader actually has. Five mobile steps run in the smoke test on every pass.
+
 ## 6. Plugin architecture for observations
 
 A decorator-based parser registry. Adding a platform is **one file** — no
@@ -105,8 +127,10 @@ path, not a promise to remember.
 - **Dataset-wide colour limits**, so the volume never flickers between frames
 - **GPU capability probe** at runtime → quality tier, shown in the UI
 - **Texture disposal on exit**, so the tenth region selection does not crash
-- **40-assertion data contract** + **21-step browser smoke test**, both run
-  against whichever catalog is configured
+- **40-assertion data contract** + a **26-step browser smoke test** (21
+  desktop, 5 mobile), both run against whichever catalog is configured
+- **Engine sniffed per file**, because real GDAC products are NetCDF-3 and
+  generated ones are NetCDF-4
 
 ## What is deliberately not claimed
 

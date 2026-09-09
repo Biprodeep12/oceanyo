@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -17,6 +17,16 @@ export const metadata: Metadata = {
   description:
     "Interactive ocean data visualization and model-observation intelligence "
     + "for the Indian EEZ. Synthetic CF-compliant fields (SIH 26067).",
+};
+
+// The map handles its own pinch-zoom. Letting the browser zoom the page as
+// well means a two-finger gesture on the map scales the UI instead.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#06121c",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

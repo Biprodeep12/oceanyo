@@ -1,35 +1,99 @@
 # Real-data catalog. Structurally identical to catalog.synthetic.yaml --
 # swapping OCEANUPS_CATALOG between them is the whole migration path.
+#
+# ---------------------------------------------------------------------------
+# SOURCES (the dataset links named in the SIH 26067 problem statement)
+# ---------------------------------------------------------------------------
+#
+# a. Numerical ocean model outputs
+#    INCOIS Live Access Server   https://las.incois.gov.in/
+#      Ferret LAS over a THREDDS Data Server; OPeNDAP under
+#      https://las.incois.gov.in/thredds/dodsC/las/
+#      Indian-Ocean SST, surface chlorophyll, winds, objectively-analysed
+#      in-situ products, GODAS-MOM analysis, WOA09 climatology.
+#      Consume server-side: a binary DAP response is not browser-consumable.
+#
+#    Copernicus GLORYS12V1       https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description
+#      GLOBAL_MULTIYEAR_PHY_001_030, DOI 10.48670/moi-00021.
+#      1/12 degree, 50 levels (22 above 100 m), 1993-present, daily/monthly.
+#      Free registration required. MOTU is deprecated; use the toolbox:
+#
+#        pip install copernicusmarine
+#        copernicusmarine subset \
+#          -i cmems_mod_glo_phy_my_0.083deg_P1D-m \
+#          -v thetao -v so -v uo -v vo \
+#          -x 80 -X 95 -y 5 -Y 22 -z 0 -Z 2000 \
+#          -t 2023-01-01 -T 2023-01-31 \
+#          -o data/derived -f glorys_bob.nc
+#
+#      Depth MUST reach 2000 m: a 1000 m subset leaves every deeper Argo
+#      matchup with nothing to compare against.
+#
+#    Chlorophyll is NOT in GLORYS12 (physics only). Use the BGC reanalysis
+#    GLOBAL_MULTIYEAR_BGC_001_029 (variable `chl`), which is 1/4 degree and
+#    lower-frequency -- a different grid, deliberately kept on its own axes.
+#
+#        copernicusmarine subset \
+#          -i cmems_mod_glo_bgc_my_0.25deg_P1D-m -v chl \
+#          -x 80 -X 95 -y 5 -Y 22 -z 0 -Z 200 \
+#          -t 2023-01-01 -T 2023-01-31 -o data/derived -f bgc_bob.nc
+#
+# b. Argo global data          ftp://ftp.ifremer.fr/ifremer/argo
+#    HTTPS mirror (preferred)  https://data-argo.ifremer.fr/
+#      Index files: ar_index_global_prof.txt, argo_synthetic-profile_index.txt.gz
+#      QC reference table 2: 1 = good, 2 = probably good, 4 = bad.
+#      INCOIS is itself a DAC: https://data-argo.ifremer.fr/dac/incois/
+#
+#        npm run fetch:real        # downloads Bay of Bengal floats and parses them
+#        pip install argopy        # or: DataFetcher(mode="research").region(...)
+#
+# c. Glider data               ftp://ftp.ifremer.fr/ifremer/glider/v2/
+#      EGO glider NetCDF, format 1.5 (DOI 10.13155/34980), one file per
+#      deployment, descent/ascent split into two profiles.
+#      Indian-Ocean deployments are sparse -- verify availability early.
+#
+# d. Collection of in-situ data (the problem statement link is missing)
+#    Substitutes, in order of preference:
+#      Copernicus In Situ TAC CORA  INSITU_GLO_PHY_TS_DISCRETE_MY_013_001
+#                                   DOI 10.17882/46219
+#      gridded analysis             INSITU_GLO_PHY_TS_OA_MY_013_052 (0.5 deg, 187 levels)
+#      NOAA NCEI World Ocean Database  https://www.ncei.noaa.gov/products/world-ocean-database
+#      INCOIS in-situ portals        https://incois.gov.in/portal/datainfo/
+#    The ctd_csv parser exists so any of these can be dropped in as CSV
+#    without touching the schema, the API or the frontend.
+#
+# Bathymetry: GEBCO 2024 grid, https://www.gebco.net/data_and_products/gridded_bathymetry_data/
+# Climatology: Roemmich-Gilson Argo climatology (NOT CF-compliant -- needs
+#   attribute repair), or INSITU_GLO_PHY_TS_OA_MY_013_052.
+# ---------------------------------------------------------------------------
+
 id: bob-glorys12
 source: "GLORYS12V1 (CMEMS) - GLOBAL_MULTIYEAR_PHY_001_030, DOI 10.48670/moi-00021"
 synthetic: false
 
 model:
   uri: data/derived/glorys_bob.nc
-  engine: h5netcdf
-  # Empty = resolve via standard_name / cf-xarray. This is the mechanism;
-  # the mapping below is only an escape hatch for non-conforming files.
+  # Omit `engine` to sniff it from the file. GDAC and older products are
+  # NetCDF-3 classic, which h5netcdf cannot read at all; Copernicus downloads
+  # are NetCDF-4. Forcing one engine breaks whichever the other is.
   variables: {}
 
 bgc:
   uri: data/derived/bgc_bob.nc
-  engine: h5netcdf
   variables:
     chlorophyll: chl
 
 bathymetry:
   uri: data/raw/gebco_2024_bob.nc
-  engine: h5netcdf
   variable: elevation
 
 climatology:
   uri: data/derived/climatology.nc
-  engine: h5netcdf
 
 observations:
   - platform: argo
     parser: argo_netcdf
-    uri: data/raw/argo
+    uri: data/real/argo
   - platform: glider
     parser: glider_ego
     uri: data/raw/glider

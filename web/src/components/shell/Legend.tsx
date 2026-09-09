@@ -91,7 +91,7 @@ export default function Legend() {
   return (
     <div ref={box} className="pointer-events-auto relative">
       {open && !anomalyActive && (
-        <div className="ze-panel absolute bottom-[54px] left-0 w-[248px] space-y-3 p-3.5">
+        <div className="ze-panel absolute bottom-[54px] left-0 right-0 space-y-3 p-3.5 md:right-auto md:w-[248px]">
           <div className="ze-section-label !m-0 !p-0">Colour scale</div>
           <div className="flex gap-2">
             <NumberField label="min" value={lo} onCommit={(v) => setColorRange(variable, [v, hi])} />
@@ -146,7 +146,7 @@ export default function Legend() {
             ? "The anomaly layer sets its own scale"
             : "Edit colour scale"
         }
-        className="block w-[268px] cursor-pointer text-left disabled:cursor-default"
+        className="block w-full cursor-pointer text-left disabled:cursor-default md:w-[268px]"
       >
         <div
           className="h-[13px] w-full rounded-[3px]"

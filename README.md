@@ -139,6 +139,25 @@ Three consequences worth stating:
   because the canvas is transparent and the demo path used preset buttons. A
   shift+drag step in the smoke test now guards it.
 
+### Responsive
+
+The layout is built for a phone as well as a desktop, and the smoke test drives
+both.
+
+- Panels become **sheets** below 768px: near-opaque, dismissable, with a scrim.
+  The layer list moves behind a rail button; the profile panel anchors to the
+  top so it never covers the time bar that controls what it is showing.
+- **Tap-to-draw regions.** Shift+drag cannot exist on a touch screen -- there is
+  no shift, and a drag is a pan. `Draw region` takes two taps on opposite
+  corners, and it is offered on every device rather than being a mobile
+  fallback. Without it the 3D block is unreachable on a phone.
+- **A tap probes the field**, since a touch screen never hovers.
+- The block camera is **fitted to the viewport**, not to a fixed position: a
+  tall screen has a narrow horizontal field of view, and the framing that suits
+  a desktop crops the block on a phone.
+- Hints name the gesture the reader actually has -- "pinch to zoom", not
+  "scroll to zoom".
+
 ### Decisions worth knowing
 
 - **No CORS anywhere.** Next rewrites proxy `/api`, `/tiles`, `/wms` and
@@ -192,6 +211,58 @@ Three consequences worth stating:
   markers walks a few hundred of them. Cold that endpoint took 9.4 s and landed
   on the demo path; cached it is 0.37 s, and a background pre-warm at startup
   means even the first call is warm.
+
+---
+
+---
+
+## Datasets
+
+Every source named in the problem statement, and what this repo does with it.
+
+| # | Source | Link | Status here |
+|---|---|---|---|
+| a | INCOIS Live Access Server | https://las.incois.gov.in/ | Documented; OPeNDAP under `/thredds/dodsC/las/`, consumed server-side (a binary DAP response is not browser-consumable) |
+| a | Copernicus GLORYS12V1 | https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description | `catalog.glorys.yaml` + the exact `copernicusmarine subset` command. **Free registration required**, so it is documented rather than bundled |
+| b | Argo global data | ftp://ftp.ifremer.fr/ifremer/argo | **Fetched and parsed.** `npm run fetch:real` |
+| c | Glider data | ftp://ftp.ifremer.fr/ifremer/glider/v2/ | EGO v1.5 parser ships and reads the format; Indian-Ocean deployments are sparse, so the demo uses synthetic gliders |
+| d | Collection of in-situ data | *(link missing from the statement)* | Substitutes listed in `catalog.glorys.yaml`: Copernicus CORA `INSITU_GLO_PHY_TS_DISCRETE_MY_013_001` (DOI 10.17882/46219), the gridded `..._OA_MY_013_052`, NOAA NCEI WOD, INCOIS in-situ portals. The `ctd_csv` parser exists so any of them drops in as CSV |
+
+### Real Argo data, actually fetched
+
+```bash
+npm run fetch:real     # a few hundred KB from the public GDAC, no credentials
+```
+
+Downloads floats from the **INCOIS DAC** (`data-argo.ifremer.fr/dac/incois/`),
+keeps the ones inside the Bay of Bengal window, then runs the *same*
+registered parser the synthetic files use and reports what it got. Last run:
+
+```
+REAL DATA: 6 files from the incois DAC
+  profiles parsed  840 ok, 0 failed
+  temperature levels 45822
+  QC histogram {1: 44503, 3: 64, 4: 1255}
+```
+
+**This is the test the whole synthetic-first argument rests on, and it failed
+the first time.** Two assumptions had been baked in because we generated both
+sides of the pipeline:
+
+- **Real GDAC files are NetCDF-3 classic.** `h5netcdf` cannot open them at all
+  -- it reports "file signature not found", which reads like a corrupt
+  download. The engine is now sniffed from the file's magic bytes
+  (`core/netcdf.py`), and the catalog no longer forces one.
+- **Real QC flags are characters, not integers.** xarray returns an object
+  array mixing `bytes` with `nan` where the flag is blank, and `.astype(int)`
+  on that took out **762 of 840 profiles**. `obs/qc.py` decodes all encodings,
+  mapping blank to 0 -- "no QC performed" -- rather than to 1, which would
+  have promoted unchecked levels into the quantitative statistics.
+
+The synthetic generator now writes QC as characters too, so both sides
+exercise the same path. A format mismatch that only real data can reveal is
+exactly what a synthetic-first project should expect to find, and the fix is
+worth more than the bug cost.
 
 ---
 
@@ -253,7 +324,8 @@ the ASCII/CSV ingestion requirement).
 
 ```bash
 npm run verify           # data contract: 40 assertions
-node web/scripts/smoke.mjs   # browser smoke test, 21 steps (needs both servers)
+npm run fetch:real       # download real Argo profiles and parse them
+node web/scripts/smoke.mjs   # browser smoke test: 21 desktop + 5 mobile steps
 ```
 
 The smoke test drives the real demo path in Chromium and fails on any console

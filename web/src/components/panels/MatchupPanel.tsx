@@ -7,6 +7,7 @@
 // nothing here is generated or inferred.
 
 import { useMemo } from "react";
+import { useIsMobile } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
 function Stat({
@@ -109,6 +110,7 @@ export default function MatchupPanel() {
   const setSelectedProfile = useSessionStore((s) => s.setSelectedProfile);
   const setMatchup = useSessionStore((s) => s.setMatchup);
   const varMeta = useSessionStore((s) => s.variables.find((v) => v.variable === s.variable));
+  const mobile = useIsMobile();
 
   if (loading) {
     return (
@@ -125,7 +127,16 @@ export default function MatchupPanel() {
   };
 
   return (
-    <div className="ze-panel w-[288px] p-3.5">
+    <div
+      className={
+        mobile
+          ? // Anchored to the TOP on a phone: the bottom belongs to the
+            // timeline and the colour scale, and a profile that covered them
+            // would hide the controls needed to change what it is showing.
+            "ze-panel fixed inset-x-2 top-2 max-h-[58dvh] overflow-y-auto p-3.5"
+          : "ze-panel w-[288px] p-3.5"
+      }
+    >
       <div className="mb-2 flex items-start justify-between">
         <div>
           <div className="ze-section-label !m-0 !p-0">{profile.platform} profile</div>

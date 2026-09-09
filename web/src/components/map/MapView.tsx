@@ -148,6 +148,9 @@ export default function MapView({ visible }: { visible: boolean }) {
   const climatologyVars = useSessionStore((s) => s.health?.climatology);
   const showObservations = useSessionStore((s) => s.showObservations);
   const varMeta = useSessionStore(currentVariable);
+  const drawMode = useSessionStore((s) => s.drawMode);
+  const setDrawMode = useSessionStore((s) => s.setDrawMode);
+  const setDrawAnchor = useSessionStore((s) => s.setDrawAnchor);
   const time = useSessionStore(currentTime);
   const display = useDisplaySettings();
   const setSelection = useSessionStore((s) => s.setSelection);
@@ -421,6 +424,41 @@ export default function MapView({ visible }: { visible: boolean }) {
     src?.setData(selectionGeoJSON(selection) as GeoJSON.FeatureCollection);
   }, [selection, ready]);
 
+  // --- tap two corners to draw a region ---
+  //
+  // Shift+drag cannot exist on a touch screen: there is no shift, and a drag
+  // is a pan. Two taps work on every input device, so this is the primary way
+  // to select a region and shift+drag is the shortcut, not the only path.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready || !drawMode) return;
+    m.getCanvas().style.cursor = "crosshair";
+    let anchor: [number, number] | null = null;
+
+    const onClick = (ev: MapMouseEvent) => {
+      const point: [number, number] = [ev.lngLat.lng, ev.lngLat.lat];
+      if (!anchor) {
+        anchor = point;
+        setDrawAnchor(point);
+        return;
+      }
+      setSelection([
+        Math.min(anchor[0], point[0]),
+        Math.min(anchor[1], point[1]),
+        Math.max(anchor[0], point[0]),
+        Math.max(anchor[1], point[1]),
+      ]);
+      anchor = null;
+      setDrawMode(false);
+    };
+
+    m.on("click", onClick);
+    return () => {
+      m.off("click", onClick);
+      m.getCanvas().style.cursor = "";
+    };
+  }, [drawMode, ready, setSelection, setDrawMode, setDrawAnchor]);
+
   // --- the rail owns zoom, and this is what it drives in map mode ---
   useEffect(() => {
     const m = map.current;
@@ -489,9 +527,17 @@ export default function MapView({ visible }: { visible: boolean }) {
 
     m.on("mousemove", onMove);
     m.on("mouseout", onOut);
+    // A touch screen never hovers, so a tap has to do the same job. Skipped
+    // while drawing a region, where a tap means "corner", not "read value".
+    const onTap = (ev: MapMouseEvent) => {
+      if (useSessionStore.getState().drawMode) return;
+      onMove(ev);
+    };
+    m.on("click", onTap);
     return () => {
       m.off("mousemove", onMove);
       m.off("mouseout", onOut);
+      m.off("click", onTap);
       if (frame) cancelAnimationFrame(frame);
     };
   }, [probe, variable, varMeta, ready]);

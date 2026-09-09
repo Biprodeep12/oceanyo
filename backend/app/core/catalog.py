@@ -18,7 +18,10 @@ from .geometry import BBox, DepthRange
 @dataclass
 class SourceRef:
     uri: Path
-    engine: str = "h5netcdf"
+    #: None means sniff the engine from the file's magic bytes. Real GDAC
+    #: products are NetCDF-3 classic, which h5netcdf cannot read at all,
+    #: so a project-wide default is wrong for half the sources.
+    engine: str | None = None
     variables: dict[str, str] = field(default_factory=dict)  # canonical -> raw override
     variable: str | None = None  # single-variable sources (bathymetry)
 
@@ -57,7 +60,7 @@ class Catalog:
                 return None
             return SourceRef(
                 uri=settings.resolve(node["uri"]),
-                engine=node.get("engine", "h5netcdf"),
+                engine=node.get("engine"),
                 variables=node.get("variables") or {},
                 variable=node.get("variable"),
             )

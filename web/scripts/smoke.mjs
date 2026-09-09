@@ -1,6 +1,6 @@
 // Browser smoke test: drives the actual demo path and reports console errors.
 // Run with both dev servers up:  node web/scripts/smoke.mjs
-import { chromium } from "playwright";
+import { chromium, devices } from "playwright";
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -352,6 +352,94 @@ await step("back to map", async () => {
   await page.waitForTimeout(1200);
   await shot("04-back.png");
 });
+
+
+// ---------------------------------------------------------------- mobile
+//
+// A phone is not a narrow desktop: the panels become sheets, the layer list
+// moves behind a rail button, and shift+drag -- the only way to select a
+// region with a mouse -- cannot exist at all. That last one is why this
+// section is here rather than being eyeballed once: tap-to-draw is the only
+// path to the 3D block on a touch device, so if it breaks the app is a
+// read-only map and nothing in the desktop run would notice.
+
+console.log("\nmobile (Pixel 7)");
+
+const mctx = await browser.newContext({ ...devices["Pixel 7"] });
+const mpage = await mctx.newPage();
+const mErrors = [];
+mpage.on("console", (m) => m.type() === "error" && mErrors.push(m.text()));
+mpage.on("pageerror", (e) => mErrors.push(`PAGEERROR: ${e.message}`));
+
+const mstep = async (name, fn) => {
+  process.stdout.write(`  ${name.padEnd(38)}`);
+  try {
+    await fn();
+    console.log("ok");
+  } catch (e) {
+    console.log(`FAIL -- ${e.message.split("\n")[0]}`);
+    process.exitCode = 1;
+  }
+};
+
+await mstep("load on a phone viewport", async () => {
+  await mpage.goto("http://localhost:3000", {
+    waitUntil: "domcontentloaded",
+    timeout: 60000,
+  });
+  await mpage.waitForSelector("canvas.maplibregl-canvas", { timeout: 30000 });
+  await mpage.waitForTimeout(4000);
+  const size = mpage.viewportSize();
+  if (size.width > 500) throw new Error(`not a phone viewport: ${size.width}px`);
+  await mpage.screenshot({ path: `${OUT}/m1-map.png`, timeout: 90000 });
+});
+
+await mstep("no horizontal overflow", async () => {
+  // A single overflowing panel makes the whole map pannable sideways and the
+  // layout unusable; it is the classic responsive regression.
+  const over = await mpage.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  if (over > 1) throw new Error(`page scrolls ${over}px horizontally`);
+});
+
+await mstep("layers open as a sheet", async () => {
+  await mpage.getByRole("button", { name: "Layers", exact: true }).click();
+  await mpage.waitForTimeout(500);
+  await mpage.getByLabel("Temperature", { exact: true }).waitFor({ timeout: 10000 });
+  await mpage.screenshot({ path: `${OUT}/m2-layers.png`, timeout: 90000 });
+  await mpage.getByRole("button", { name: "Close layers" }).click();
+  await mpage.waitForTimeout(400);
+});
+
+await mstep("tap two corners -> region", async () => {
+  await mpage.getByRole("button", { name: "Draw region", exact: true }).click();
+  const box = await mpage.locator("canvas.maplibregl-canvas").boundingBox();
+  await mpage.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.35);
+  await mpage.waitForTimeout(400);
+  const hint = await mpage.evaluate(() => document.body.innerText);
+  if (!/opposite corner/.test(hint)) throw new Error("first corner did not register");
+  await mpage.mouse.click(box.x + box.width * 0.75, box.y + box.height * 0.62);
+  await mpage.waitForTimeout(700);
+  if (await mpage.getByRole("button", { name: "Dive" }).isDisabled()) {
+    throw new Error("Dive still disabled after tapping two corners");
+  }
+  await mpage.screenshot({ path: `${OUT}/m3-region.png`, timeout: 90000 });
+});
+
+await mstep("dive works on a phone", async () => {
+  await mpage.getByRole("button", { name: "Dive" }).click();
+  await mpage.waitForFunction(
+    () => document.body.innerText.includes("drag to orbit"),
+    { timeout: 60000 },
+  );
+  await mpage.waitForTimeout(2500);
+  await mpage.screenshot({ path: `${OUT}/m4-block.png`, timeout: 90000 });
+});
+
+console.log("mobile console errors:", mErrors.length);
+for (const e of mErrors.slice(0, 6)) console.log("   -", e.slice(0, 200));
+if (mErrors.length) process.exitCode = 1;
 
 console.log("\nconsole errors:", errors.length);
 for (const e of errors.slice(0, 12)) console.log("   -", e.slice(0, 220));

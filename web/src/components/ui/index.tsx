@@ -7,6 +7,7 @@
 // components here.
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { useIsMobile } from "@/state/useMediaQuery";
 import { IconClose } from "./icons";
 
 export function Panel({
@@ -121,6 +122,7 @@ export function Popover({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const mobile = useIsMobile();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -145,7 +147,17 @@ export function Popover({
   }, [onClose]);
 
   return (
-    <div ref={ref} className={`ze-panel w-[280px] overflow-hidden ${className}`}>
+    <>
+      {mobile && <div className="ze-scrim z-30" onClick={onClose} aria-hidden />}
+    <div
+      ref={ref}
+      className={
+        mobile
+          ? `ze-panel ze-sheet z-40 ${className}`
+          : `ze-panel w-[280px] overflow-hidden ${className}`
+      }
+    >
+      {mobile && <span className="ze-sheet-handle" aria-hidden />}
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
         <div className="ze-section-label !m-0 !p-0">{title}</div>
         <button
@@ -156,8 +168,11 @@ export function Popover({
           <IconClose className="h-4 w-4" />
         </button>
       </div>
-      <div className="ze-scroll max-h-[70vh] overflow-y-auto pb-3">{children}</div>
+      <div className={mobile ? "pb-3" : "ze-scroll max-h-[70vh] overflow-y-auto pb-3"}>
+        {children}
+      </div>
     </div>
+    </>
   );
 }
 

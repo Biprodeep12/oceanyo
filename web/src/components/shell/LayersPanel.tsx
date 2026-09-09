@@ -25,6 +25,7 @@ import {
   IconVolume,
 } from "@/components/ui/icons";
 import { shortLabel } from "@/lib/variableLabels";
+import { useIsMobile } from "@/state/useMediaQuery";
 import { currentVariable, useSessionStore } from "@/state/useSessionStore";
 
 function variableIcon(key: string) {
@@ -36,6 +37,7 @@ function variableIcon(key: string) {
 
 export default function LayersPanel() {
   const [open, setOpen] = useState(true);
+  const mobile = useIsMobile();
   const s = useSessionStore();
   const varMeta = useSessionStore(currentVariable);
 
@@ -43,26 +45,46 @@ export default function LayersPanel() {
   const inBlock = s.phase === "block";
   const depthMax = varMeta?.depthRange[1] ?? 2000;
 
+  // On a phone this is a dismissable sheet opened from the rail; on a desktop
+  // it is a permanent panel with its own collapse chevron. Same content, and
+  // the sheet closes by tapping its title row.
+  if (mobile && !s.layersOpen) return null;
+
   return (
-    <div className="ze-panel w-[248px] overflow-hidden pb-2">
+    <>
+      {mobile && (
+        <div
+          className="ze-scrim z-30"
+          onClick={() => s.setLayersOpen(false)}
+          aria-hidden
+        />
+      )}
+    <div
+      className={
+        mobile
+          ? "ze-panel ze-sheet z-40 pb-2"
+          : "ze-panel w-[248px] overflow-hidden pb-2"
+      }
+    >
+      {mobile && <span className="ze-sheet-handle" aria-hidden />}
       <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Collapse layers" : "Expand layers"}
+        onClick={() => (mobile ? s.setLayersOpen(false) : setOpen((v) => !v))}
+        aria-label={mobile ? "Close layers" : open ? "Collapse layers" : "Expand layers"}
         className="flex w-full items-center justify-between px-4 pt-3 pb-0.5"
       >
         <span className="ze-section-label !m-0 !p-0">
           {inBlock ? "Block" : "Live maps"}
         </span>
         <span className="text-[color:var(--ze-text-dim)]">
-          {open ? (
-            <IconChevronUp className="h-4 w-4" />
-          ) : (
+          {open || mobile ? (
             <IconChevronDown className="h-4 w-4" />
+          ) : (
+            <IconChevronUp className="h-4 w-4" />
           )}
         </span>
       </button>
 
-      {open && (
+      {(open || mobile) && (
         <>
           <div className="mt-1">
             <MenuRow
@@ -178,5 +200,6 @@ export default function LayersPanel() {
         </>
       )}
     </div>
+    </>
   );
 }

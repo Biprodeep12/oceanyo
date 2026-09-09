@@ -10,12 +10,15 @@ import { useEffect, useState } from "react";
 
 import { Popover, Slider } from "@/components/ui";
 import {
+  IconDraw,
   IconInfo,
+  IconLayers,
   IconMinus,
   IconPlus,
   IconRegion,
   IconSettings,
 } from "@/components/ui/icons";
+import { useIsMobile } from "@/state/useMediaQuery";
 import { probeGpu, type GpuCaps } from "@/three/caps";
 import { viewport } from "@/lib/viewport";
 import { useSessionStore } from "@/state/useSessionStore";
@@ -58,6 +61,11 @@ export default function IconRail() {
   const setOpacity = useSessionStore((s) => s.setOpacity);
   const setAnomalyLimit = useSessionStore((s) => s.setAnomalyLimit);
   const phase = useSessionStore((s) => s.phase);
+  const drawMode = useSessionStore((s) => s.drawMode);
+  const setDrawMode = useSessionStore((s) => s.setDrawMode);
+  const layersOpen = useSessionStore((s) => s.layersOpen);
+  const setLayersOpen = useSessionStore((s) => s.setLayersOpen);
+  const mobile = useIsMobile();
 
   const toggle = (id: Exclude<PanelId, null>) =>
     setOpen((cur) => (cur === id ? null : id));
@@ -75,8 +83,9 @@ export default function IconRail() {
           {open === "regions" && (
             <Popover title="Regions" onClose={() => setOpen(null)}>
               <div className="px-4 pb-1 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
-                Pick a preset, or shift+drag on the map to draw a rectangle, then
-                press Dive.
+                Pick a preset, or use <b>Draw region</b> and tap two opposite
+                corners. On a mouse, shift+drag does the same thing. Then press
+                Dive.
               </div>
               <div className="mt-1 flex flex-col">
                 {presets.map((p) => (
@@ -185,6 +194,30 @@ export default function IconRail() {
       )}
 
       <div className="pointer-events-auto flex flex-col items-end gap-2" data-rail>
+        {/* The layers list is a permanent panel on a desktop and a sheet on a
+            phone, so the button that opens it only exists on a phone. */}
+        {mobile && (
+          <RailButton
+            label="Layers"
+            active={layersOpen}
+            onClick={() => setLayersOpen(!layersOpen)}
+          >
+            <IconLayers />
+          </RailButton>
+        )}
+        {phase !== "block" && (
+          <RailButton
+            label="Draw region"
+            active={drawMode}
+            onClick={() => {
+              setDrawMode(!drawMode);
+              setOpen(null);
+              if (mobile) setLayersOpen(false);
+            }}
+          >
+            <IconDraw />
+          </RailButton>
+        )}
         <RailButton
           label="Regions"
           active={open === "regions"}

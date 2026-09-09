@@ -9,7 +9,8 @@
     "dev:web": "npm --prefix web run dev",
     "synth": "backend/.venv/Scripts/python.exe -m app.pipeline.cli synth --profile demo",
     "synth:tiny": "backend/.venv/Scripts/python.exe -m app.pipeline.cli synth --profile tiny",
-    "verify": "backend/.venv/Scripts/python.exe -m app.pipeline.cli verify"
+    "verify": "backend/.venv/Scripts/python.exe -m app.pipeline.cli verify",
+    "fetch:real": "backend/.venv/Scripts/python.exe -m app.pipeline.cli fetch-real"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -178,3 +178,19 @@ export const IconRaindrop = (p: P) => (
     <path d="M12 3.5s6 6.7 6 10.4a6 6 0 0 1-12 0C6 10.2 12 3.5 12 3.5Z" />
   </svg>
 );
+
+export const IconDraw = (p: P) => (
+  <svg {...base} {...p}>
+    <rect x="4" y="6" width="16" height="12" rx="1.5" strokeDasharray="3 2.5" />
+    <circle cx="4" cy="6" r="1.6" fill="currentColor" stroke="none" />
+    <circle cx="20" cy="18" r="1.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+export const IconLayers = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="m12 3 9 4.5-9 4.5-9-4.5L12 3Z" />
+    <path d="m3 12 9 4.5 9-4.5" />
+    <path d="m3 16.5 9 4.5 9-4.5" />
+  </svg>
+);

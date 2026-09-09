@@ -90,7 +90,7 @@ export default function Timeline() {
   const progress = times.length > 1 ? timeIndex / (times.length - 1) : 0;
 
   return (
-    <div className="ze-panel pointer-events-auto relative flex items-stretch gap-1 overflow-hidden pl-1 pr-2">
+    <div className="ze-panel pointer-events-auto relative flex flex-1 items-stretch justify-center gap-1 overflow-hidden pl-1 pr-2 md:flex-none">
       <button
         onClick={() => toggle("playing")}
         aria-label={playing ? "Pause" : "Play"}
@@ -123,7 +123,7 @@ export default function Timeline() {
         onClick={() => setTimeIndex(Math.max(0, times.length - 1))}
         aria-label="Jump to the last step"
         title="Jump to the last step"
-        className="grid w-9 place-items-center rounded-xl text-[color:var(--ze-text-dim)] hover:bg-white/10 hover:text-white"
+        className="hidden w-9 place-items-center rounded-xl text-[color:var(--ze-text-dim)] hover:bg-white/10 hover:text-white sm:grid"
       >
         <IconSkipEnd className="h-4 w-4" />
       </button>
