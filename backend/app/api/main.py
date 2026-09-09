@@ -87,7 +87,10 @@ async def lifespan(app: FastAPI):
     )
     cat = Catalog.load(settings.catalog)
     log.info("catalog %s (synthetic=%s) from %s", cat.id, cat.synthetic, cat.path)
-    init_store(cat)
+    store = init_store(cat)
+
+    # Warm the observation cache behind the API rather than in front of it.
+    threading.Thread(target=store.prewarm, name="prewarm", daemon=True).start()
 
     if settings.enable_xpublish:
         threading.Thread(

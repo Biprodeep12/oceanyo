@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 
 from ..core.catalog import Catalog
@@ -32,6 +33,12 @@ class DataStore:
         self.climatology: CFDataset | None = None
         self._refs: list[ProfileRef] = []
         self._lock = threading.Lock()
+        # Loading a profile means opening a NetCDF file. The matchup summary
+        # walks hundreds of them, and the same profiles are re-read on every
+        # variable change, so the open dominates the endpoint. Cache the parsed
+        # results; they are small and immutable for a given dataset.
+        self._profiles: OrderedDict[tuple[str, str], ObservationProfile] = OrderedDict()
+        self._profile_cache_max = 4000
 
     # -- lifecycle --------------------------------------------------------
     def open_all(self) -> None:
@@ -68,6 +75,25 @@ class DataStore:
         self.reindex_observations()
         log.info("datastore ready in %.1fs", time.time() - t0)
 
+    def prewarm(self) -> None:
+        """Load every indexed profile into the cache.
+
+        The matchup summary that colours the instrument markers otherwise pays
+        the cost of opening a few hundred NetCDF files on its first call, which
+        lands squarely on the demo path. Runs on a background thread at
+        startup, so the API is usable immediately and this finishes behind it.
+        """
+        t0 = time.time()
+        refs = self.observation_refs()
+        loaded = 0
+        for ref in refs:
+            try:
+                self.load_profile(ref)
+                loaded += 1
+            except Exception:
+                continue
+        log.info("prewarmed %d/%d profiles in %.1fs", loaded, len(refs), time.time() - t0)
+
     def close(self) -> None:
         for d in (self.model, self.bgc, self.bathymetry, self.climatology):
             if d is not None:
@@ -91,6 +117,7 @@ class DataStore:
                 log.warning("discovery failed for %s (%s): %s", src.platform, src.uri, exc)
         with self._lock:
             self._refs = refs
+            self._profiles.clear()
 
     def observation_refs(
         self,
@@ -125,9 +152,21 @@ class DataStore:
         return None
 
     def load_profile(self, ref: ProfileRef) -> ObservationProfile:
+        key = (ref.platform, ref.id)
+        with self._lock:
+            hit = self._profiles.get(key)
+            if hit is not None:
+                self._profiles.move_to_end(key)
+                return hit
+
         for src in self.catalog.observations:
             if src.platform == ref.platform:
-                return REGISTRY.get(src.parser).load(ref)
+                profile = REGISTRY.get(src.parser).load(ref)
+                with self._lock:
+                    self._profiles[key] = profile
+                    while len(self._profiles) > self._profile_cache_max:
+                        self._profiles.popitem(last=False)
+                return profile
         raise KeyError(f"no configured source for platform {ref.platform!r}")
 
     def platforms(self) -> list[str]:

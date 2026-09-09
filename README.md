@@ -134,6 +134,11 @@ web/src/                  Next.js: MapLibre map mode, react-three-fiber block
   `xpublish-wms` measured 30–70 s on this machine, and it is the least mature
   dependency in the stack. The API boots in ~2 s regardless; `/api/health`
   reports what actually came up.
+- **Observation profiles are cached and pre-warmed behind the API.** Each
+  profile is a NetCDF open, and the matchup summary that colours the instrument
+  markers walks a few hundred of them. Cold that endpoint took 9.4 s and landed
+  on the demo path; cached it is 0.37 s, and a background pre-warm at startup
+  means even the first call is warm.
 
 ---
 
