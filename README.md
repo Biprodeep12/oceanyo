@@ -218,53 +218,116 @@ both.
 
 ## Datasets
 
-Every source named in the problem statement, and what this repo does with it.
+Every source named in the problem statement, what was actually reachable, and
+what it changed.
 
-| # | Source | Link | Status here |
+| # | Source | Reachable without an account | Status |
 |---|---|---|---|
-| a | INCOIS Live Access Server | https://las.incois.gov.in/ | Documented; OPeNDAP under `/thredds/dodsC/las/`, consumed server-side (a binary DAP response is not browser-consumable) |
-| a | Copernicus GLORYS12V1 | https://data.marine.copernicus.eu/product/GLOBAL_MULTIYEAR_PHY_001_030/description | `catalog.glorys.yaml` + the exact `copernicusmarine subset` command. **Free registration required**, so it is documented rather than bundled |
-| b | Argo global data | ftp://ftp.ifremer.fr/ifremer/argo | **Fetched and parsed.** `npm run fetch:real` |
-| c | Glider data | ftp://ftp.ifremer.fr/ifremer/glider/v2/ | EGO v1.5 parser ships and reads the format; Indian-Ocean deployments are sparse, so the demo uses synthetic gliders |
-| d | Collection of in-situ data | *(link missing from the statement)* | Substitutes listed in `catalog.glorys.yaml`: Copernicus CORA `INSITU_GLO_PHY_TS_DISCRETE_MY_013_001` (DOI 10.17882/46219), the gridded `..._OA_MY_013_052`, NOAA NCEI WOD, INCOIS in-situ portals. The `ctd_csv` parser exists so any of them drops in as CSV |
-
-### Real Argo data, actually fetched
+| a | Copernicus **GLORYS12V1** | no (free registration) | `catalog.glorys.yaml` carries the dataset IDs and the exact `copernicusmarine subset` commands |
+| a | **INCOIS LAS** | catalog yes, data no | `las.incois.gov.in/thredds/catalog.xml` responds in 0.2 s; the `dodsC` OPeNDAP endpoints for its Ferret `.jnl` datasets time out at 45 s. Data is obtainable through the LAS UI subset flow, not by anonymous OPeNDAP |
+| b | **Argo GDAC** | **yes** | **Fetched and parsed.** 4 INCOIS-DAC floats, 800 profiles, 0 failures |
+| c | **EGO glider GDAC** | **yes** | **Fetched and parsed.** 1 deployment, 192 dives/climbs, 0 failures |
+| d | Collection of in-situ data | **yes**, via substitute | **Fetched and used.** The statement's link is missing; **NOAA WOA23** is the World Ocean Database objectively analysed onto a grid and needs no account. Copernicus CORA `INSITU_GLO_PHY_TS_DISCRETE_MY_013_001` (DOI 10.17882/46219) is the like-for-like product but needs registration |
 
 ```bash
-npm run fetch:real     # a few hundred KB from the public GDAC, no credentials
+npm run fetch:real            # Argo + one glider deployment, no credentials
+npm run fetch:real -- --woa   # and WOA23 -> a real 0.4 MB climatology (~160 MB down)
 ```
 
-Downloads floats from the **INCOIS DAC** (`data-argo.ifremer.fr/dac/incois/`),
-keeps the ones inside the Bay of Bengal window, then runs the *same*
-registered parser the synthetic files use and reports what it got. Last run:
+### A real climatology, from real in-situ data
+
+WOA23 ships `t_an` (objectively analysed mean) and `t_sd` (standard deviation)
+-- exactly what the anomaly service wants, so converting it is a rename and a
+subset, not a computation. `fetch_real.build_woa_climatology` writes
+`<raw>_mean` / `<raw>_std` in the same shape the synthetic writer produces, and
+the anomaly endpoint consumes it with **no code change**:
 
 ```
-REAL DATA: 6 files from the incois DAC
-  profiles parsed  840 ok, 0 failed
-  temperature levels 45822
-  QC histogram {1: 44503, 3: 64, 4: 1255}
+model grid : 137 lat x 121 lon x  40 levels
+WOA23 grid :  17 lat x  15 lon x 102 levels
+    0 m  coverage 61%  z -1.55.. 2.42
+  100 m  coverage 60%  z -1.41.. 2.98
 ```
 
-**This is the test the whole synthetic-first argument rests on, and it failed
-the first time.** Two assumptions had been baked in because we generated both
-sides of the pipeline:
+This is the payoff from a change made blind: the anomaly service interpolates
+the climatology onto the model grid rather than requiring the two to match,
+because every real climatology is coarser than the model it is compared
+against. A 1-degree WOA against a 1/8-degree model is that case, and a shape
+check would have refused it.
 
-- **Real GDAC files are NetCDF-3 classic.** `h5netcdf` cannot open them at all
-  -- it reports "file signature not found", which reads like a corrupt
-  download. The engine is now sniffed from the file's magic bytes
-  (`core/netcdf.py`), and the catalog no longer forces one.
-- **Real QC flags are characters, not integers.** xarray returns an object
-  array mixing `bytes` with `nan` where the flag is blank, and `.astype(int)`
-  on that took out **762 of 840 profiles**. `obs/qc.py` decodes all encodings,
-  mapping blank to 0 -- "no QC performed" -- rather than to 1, which would
-  have promoted unchecked levels into the quantitative statistics.
+Stated plainly: those z-scores are only *meaningful* once the model is real
+too. Against the synthetic model the deep values run to tens of sigma, because
+a made-up ocean and the real World Ocean Database disagree at depth -- as they
+should. The machinery is proven; the numbers wait on real GLORYS12.
 
-The synthetic generator now writes QC as characters too, so both sides
-exercise the same path. A format mismatch that only real data can reveal is
-exactly what a synthetic-first project should expect to find, and the fix is
-worth more than the bug cost.
+### What to take from each
 
----
+**Copernicus GLORYS12V1** — three of the datasets on the product page matter:
+
+| Dataset ID | Why |
+|---|---|
+| `cmems_mod_glo_phy_my_0.083deg_P1D-m` | **The one to get.** Daily matches Argo's 10-day cycling closely enough for a 24 h matchup window; monthly does not |
+| `cmems_mod_glo_phy_my_0.083deg-climatology_P1M-m` | Month-of-year climatology — drives the anomaly layer without inventing one |
+| `cmems_mod_glo_phy_my_0.083deg_static` (`bathy`) | Bathymetry on the model's own grid, so the seabed mesh and the volume mask agree by construction rather than by regridding GEBCO |
+
+Skip the monthly mean unless you want a multi-year run, and skip `coords` and
+`mdt`. **Depth must reach 2000 m** or every Argo matchup below the subset floor
+has nothing to compare against.
+
+**INCOIS LAS** — of the products in its catalogue, four are in scope:
+
+| Product | Why |
+|---|---|
+| **INCOIS Global Ocean Reanalysis (IGORA)** | The most relevant model output: Indian-Ocean reanalysis from the problem owner |
+| **ARGO DATA PRODUCTS** | Gridded/objectively-analysed Argo — a ready answer to (d) |
+| **NEW GLOBAL CLIMATOLOGY (NIO)** | North Indian Ocean climatology for the anomaly layer |
+| **OCEAN COLOUR PRODUCTS** | Observed chlorophyll; GLORYS12 is physics-only and carries none |
+
+GODAS is a reasonable fallback for IGORA. Tropflux, ASCAT/OSCAT/QuikSCAT winds,
+MaMetAtTIO, microwave and carbonate products are out of scope for this platform.
+
+### What fetching real data actually changed
+
+The claim this project rests on is that a real swap is a config change. It was
+not, and finding out cost three defects -- all of them invisible while both
+sides of the pipeline were generated here.
+
+**1. Real GDAC files are NetCDF-3 classic.** `h5netcdf` cannot open them at
+all; it reports "file signature not found", which reads like a corrupt
+download. The engine is now sniffed from the file's magic bytes
+(`core/netcdf.py`) and the catalog no longer forces one.
+
+**2. Real Argo QC flags are characters, not integers.** xarray returns an
+object array mixing `bytes` with `nan` where the flag is blank, and
+`.astype(int)` on that took out **762 of 840 profiles**. `obs/qc.py` decodes
+every encoding and maps blank to 0 -- "no QC performed" -- rather than to 1,
+which would have promoted unchecked levels into the quantitative statistics.
+The generator now writes character QC too, so both sides exercise one path.
+
+**3. Real EGO glider files are not profiles at all.** They are a single
+time series -- 66,000 samples for a two-week deployment -- with a `PHASE`
+variable marking descent and ascent (EGO reference table 9). The parser would
+have read an entire deployment as *one* profile diving to 1000 m and back. It
+now cuts dives and climbs at the PHASE inflexions, and still reads the
+profile-shaped variant the generator writes.
+
+Two more things worth knowing about this data:
+
+- **The EGO trajectory index lies about position.** Two deployments advertise
+  transposed coordinates: one claims 10 N 78 E (the Bay of Bengal) and is
+  actually off **Svalbard**; another claims the Somali coast and is in the
+  **Mediterranean**. `fetch_real.py` confirms every candidate by reading the
+  file and discards the ones that do not match.
+- **There are no Bay of Bengal glider deployments in the GDAC.** 131 of 1115
+  fall in the wider Indian Ocean, almost all in the Mozambique Channel. The
+  spec warned coverage was sparse; that is the number. The demo therefore
+  keeps synthetic gliders in the Bay of Bengal and uses a real deployment as
+  the format fixture.
+- **Real-time data contains samples flagged good at 40 degrees C.** Real-time
+  mode applies almost no QC, and one such spike moves RMSE more than every
+  genuine difference in a profile combined. The matchup now applies a
+  gross-range check against the variable's valid range -- the first test in
+  any operational QC suite, and the reason delayed mode exists.
 
 ## Standards compliance
 
@@ -324,7 +387,7 @@ the ASCII/CSV ingestion requirement).
 
 ```bash
 npm run verify           # data contract: 40 assertions
-npm run fetch:real       # download real Argo profiles and parse them
+npm run fetch:real       # download real Argo + glider data and parse it
 node web/scripts/smoke.mjs   # browser smoke test: 21 desktop + 5 mobile steps
 ```
 

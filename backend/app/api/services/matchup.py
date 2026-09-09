@@ -33,6 +33,7 @@ from typing import Literal
 import numpy as np
 
 from ...core.cf_adapter import CFDataset
+from ...core.conventions import CANONICAL
 from ...core.geometry import BBox
 from ...core.models import MatchupResult, ObservationProfile
 
@@ -76,8 +77,23 @@ def compute_matchup(
     n = min(len(obs_depth), len(obs_val), len(obs_qc))
     obs_depth, obs_val, obs_qc = obs_depth[:n], obs_val[:n], obs_qc[:n]
 
-    # (c) QC filter
-    keep = np.isfinite(obs_val) & np.isin(obs_qc, qc_flags)
+    # (c) QC filter, plus a gross-range check.
+    #
+    # The flag alone is not enough on real data. Real-time EGO glider files
+    # from the GDAC carry samples flagged 1 ("good") at 40 degrees C, because
+    # real-time mode applies almost no QC -- and a single such spike moves the
+    # RMSE more than every genuine difference in the profile combined. A gross
+    # range check against the variable's own valid range is the first test in
+    # every operational QC suite, and it is the reason delayed mode exists.
+    lo, hi = CANONICAL[variable].valid
+    in_range = (obs_val >= lo) & (obs_val <= hi)
+    keep = np.isfinite(obs_val) & np.isin(obs_qc, qc_flags) & in_range
+    rejected = int((np.isfinite(obs_val) & np.isin(obs_qc, qc_flags) & ~in_range).sum())
+    if rejected:
+        log.info(
+            "%s %s: %d flagged-good samples outside the valid range %s..%s",
+            profile.platform, profile.id, rejected, lo, hi,
+        )
     obs_depth, obs_val = obs_depth[keep], obs_val[keep]
 
     # (a) spatial and temporal colocation

@@ -48,15 +48,28 @@
 #        pip install argopy        # or: DataFetcher(mode="research").region(...)
 #
 # c. Glider data               ftp://ftp.ifremer.fr/ifremer/glider/v2/
-#      EGO glider NetCDF, format 1.5 (DOI 10.13155/34980), one file per
-#      deployment, descent/ascent split into two profiles.
-#      Indian-Ocean deployments are sparse -- verify availability early.
+#      EGO glider NetCDF (DOI 10.13155/34980). FTP only; the trajectory index
+#      glider_traj_index.txt is 437 KB against 248 MB for the profile index,
+#      so it is the way in.
+#
+#      Verified against the real GDAC, and both of these matter:
+#        * A deployment file is a TIME SERIES, not a stack of profiles -- one
+#          TIME dimension with PHASE marking descent (1) and ascent (4). The
+#          parser cuts profiles at those inflexions.
+#        * The index positions are not reliable: two deployments carry
+#          transposed lat/lon (one claims the Bay of Bengal and is off
+#          Svalbard). fetch_real.py confirms position from the file.
+#
+#      There are NO Bay of Bengal deployments in the GDAC: 131 of 1115 are
+#      Indian Ocean, almost all Mozambique Channel.
 #
 # d. Collection of in-situ data (the problem statement link is missing)
 #    Substitutes, in order of preference:
 #      Copernicus In Situ TAC CORA  INSITU_GLO_PHY_TS_DISCRETE_MY_013_001
 #                                   DOI 10.17882/46219
 #      gridded analysis             INSITU_GLO_PHY_TS_OA_MY_013_052 (0.5 deg, 187 levels)
+#      NOAA WOA23 (fetched, no account)  https://www.ncei.noaa.gov/products/world-ocean-atlas
+#        npm run fetch:real -- --woa    # ~160 MB, subset to a 0.4 MB climatology
 #      NOAA NCEI World Ocean Database  https://www.ncei.noaa.gov/products/world-ocean-database
 #      INCOIS in-situ portals        https://incois.gov.in/portal/datainfo/
 #    The ctd_csv parser exists so any of these can be dropped in as CSV
@@ -88,7 +101,12 @@ bathymetry:
   variable: elevation
 
 climatology:
-  uri: data/derived/climatology.nc
+  # Built by `npm run fetch:real -- --woa` from NOAA WOA23, which is the World
+  # Ocean Database objectively analysed onto a grid -- i.e. the "collection of
+  # in-situ data" the problem statement asks for, with no account needed. It is
+  # 1 degree against a 1/12 degree model; the anomaly service interpolates it
+  # onto the model grid rather than requiring the two to match.
+  uri: data/real/climatology_woa23_bob.nc
 
 observations:
   - platform: argo
@@ -96,7 +114,7 @@ observations:
     uri: data/real/argo
   - platform: glider
     parser: glider_ego
-    uri: data/raw/glider
+    uri: data/real/glider
 
 defaults:
   bbox: [80, 5, 95, 22]

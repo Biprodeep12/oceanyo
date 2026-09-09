@@ -75,16 +75,29 @@ caught three real science bugs during development.
 
 ## 5b. Real data, not just a claim
 
-`npm run fetch:real` pulls genuine Argo profiles from the **INCOIS DAC** on the
-Ifremer GDAC and runs the same parser the synthetic files use:
-**840 profiles, 0 failures, 45,822 temperature levels**, QC histogram
-`{1: 44503, 3: 64, 4: 1255}`.
+`npm run fetch:real` pulls genuine data from the public GDACs -- no
+credentials -- and runs the same parsers the synthetic files use:
 
-It failed the first time, which is the point: real GDAC files are NetCDF-3
-classic (unreadable by `h5netcdf`) and store QC as characters with blanks
-(which killed 762 of 840 profiles on `.astype(int)`). Both are fixed, and the
-synthetic generator now writes the same encodings, so the two sides finally
-exercise one code path.
+| Source | Result |
+|---|---|
+| **Argo**, INCOIS DAC | 800 profiles, **0 failures**, 44,352 levels, QC `{1: 43085, 3: 64, 4: 1203}` |
+| **EGO glider**, Ifremer | 192 dives/climbs, **0 failures**, deepest 1270 m |
+| **NOAA WOA23** (`-- --woa`) | a real 0.4 MB climatology that drives the anomaly layer with no code change |
+
+It failed the first time, three ways, and every one was invisible while both
+sides of the pipeline were generated here:
+
+- Real GDAC files are **NetCDF-3 classic** -- `h5netcdf` cannot open them at all
+- Real QC flags are **characters with blanks**; `.astype(int)` killed 762 of 840 profiles
+- Real EGO files are a **time series, not profiles** -- the parser would have
+  read a whole 66,000-sample deployment as one dive to 1000 m and back
+
+All fixed, and the generator now writes the same encodings, so the two sides
+finally exercise one code path. Two bonus findings: the EGO index carries
+**transposed coordinates** for some deployments (one claims the Bay of Bengal
+and sits off Svalbard), and there are **no Bay of Bengal glider deployments in
+the GDAC at all** -- 131 of 1115 are Indian Ocean, nearly all Mozambique
+Channel.
 
 ## 5c. Runs on a phone
 
