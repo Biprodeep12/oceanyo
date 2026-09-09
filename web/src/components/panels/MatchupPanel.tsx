@@ -12,22 +12,21 @@ import { useSessionStore } from "@/state/useSessionStore";
 function Stat({
   label,
   value,
-  unit,
   hint,
 }: {
   label: string;
   value: number | null;
-  unit?: string;
   hint?: string;
 }) {
+  // Units are shown once beneath the row, not per tile: four columns of
+  // "0.320 degrees_C" overflow a 268px panel and collide with each other.
   return (
-    <div className="flex flex-col" title={hint}>
-      <span className="text-[10px] uppercase tracking-wider text-slate-400">{label}</span>
-      <span className="font-mono text-sm text-slate-100">
+    <div className="flex min-w-0 flex-col" title={hint}>
+      <span className="text-[9px] uppercase tracking-wider text-slate-400">{label}</span>
+      <span className="truncate font-mono text-[13px] text-slate-100">
         {value === null || value === undefined
           ? "--"
           : `${value >= 0 && label === "Bias" ? "+" : ""}${value.toFixed(3)}`}
-        {unit ? <span className="ml-0.5 text-[10px] text-slate-400">{unit}</span> : null}
       </span>
     </div>
   );
@@ -124,7 +123,7 @@ export default function MatchupPanel() {
   };
 
   return (
-    <div className="w-[268px] rounded-lg border border-slate-700/60 bg-slate-900/90 p-3 backdrop-blur">
+    <div className="w-72 rounded-lg border border-slate-700/60 bg-slate-900/90 p-3 backdrop-blur">
       <div className="mb-2 flex items-start justify-between">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-400">
@@ -147,12 +146,16 @@ export default function MatchupPanel() {
 
       {matchup ? (
         <>
-          <div className="mb-2 grid grid-cols-4 gap-2 rounded border border-slate-700/50 bg-slate-950/50 p-2">
-            <Stat label="Bias" value={matchup.bias} unit={varMeta?.units}
-                  hint="mean(model - observation)" />
-            <Stat label="RMSE" value={matchup.rmse} unit={varMeta?.units} />
-            <Stat label="MAE" value={matchup.mae} unit={varMeta?.units} />
-            <Stat label="Corr" value={matchup.corr} />
+          <div className="mb-2 rounded border border-slate-700/50 bg-slate-950/50 p-2">
+            <div className="grid grid-cols-4 gap-1.5">
+              <Stat label="Bias" value={matchup.bias} hint="mean(model - observation)" />
+              <Stat label="RMSE" value={matchup.rmse} />
+              <Stat label="MAE" value={matchup.mae} />
+              <Stat label="Corr" value={matchup.corr} hint="Pearson correlation" />
+            </div>
+            <div className="mt-1 text-[9px] text-slate-500">
+              bias / rmse / mae in {varMeta?.units ?? ""}
+            </div>
           </div>
           <div className="mb-1 text-[10px] leading-relaxed text-slate-500">
             {matchup.n} levels matched within {matchup.radiusKm} km /{" "}

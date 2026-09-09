@@ -116,6 +116,39 @@ await step("block canvas is drawing pixels", async () => {
   if (!nonEmpty.w || !nonEmpty.h) throw new Error("three.js canvas has zero size");
 });
 
+await step("click a float -> matchup panel", async () => {
+  // The instruments are an InstancedMesh, so there is no DOM node to target.
+  // Probe a few points over the block until the profile panel opens.
+  const canvas = await page.locator("canvas").last().boundingBox();
+  const cx = canvas.x + canvas.width / 2;
+  const cy = canvas.y + canvas.height / 2;
+  const candidates = [];
+  for (let dx = -260; dx <= 260; dx += 26) {
+    for (let dy = -180; dy <= 180; dy += 26) candidates.push([cx + dx, cy + dy]);
+  }
+  for (const [x, y] of candidates) {
+    await page.mouse.click(x, y);
+    const opened = await page
+      .getByText(/profile$/i)
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (opened) return;
+  }
+  throw new Error(`no float hit after ${candidates.length} probes`);
+});
+
+await step("matchup statistics shown", async () => {
+  await page.getByText("Bias", { exact: true }).waitFor({ timeout: 10000 });
+  await page.getByText("RMSE", { exact: true }).waitFor({ timeout: 5000 });
+  const stats = await page.evaluate(() => document.body.innerText);
+  const m = stats.match(/Bias\s+([+\-0-9.]+)/);
+  console.log(`
+      reported bias: ${m ? m[1] : "?"}`);
+  process.stdout.write(" ".repeat(40));
+  await page.screenshot({ path: `${OUT}/05-matchup.png` });
+});
+
 await step("back to map", async () => {
   await page.getByRole("button", { name: "Back to map" }).click();
   await page.waitForTimeout(1200);

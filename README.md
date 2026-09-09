@@ -194,8 +194,15 @@ the ASCII/CSV ingestion requirement).
 ## Verification
 
 ```bash
-npm run verify   # data contract: 33 assertions
+npm run verify           # data contract: 33 assertions
+node web/scripts/smoke.mjs   # browser smoke test (needs both servers up)
 ```
+
+The smoke test drives the real demo path in Chromium and fails on any console
+error: load, catalog, map render, region select, Dive, block render, click a
+float, matchup statistics, back to map. It is what caught the MapLibre worker
+failure, the CSS position collision and the tile-template encoding bug -- none
+of which a typecheck or an API test can see.
 
 Covers CF axis detection and `positive="down"`, monotonic axes, variable
 resolution by `standard_name`, depth coverage to 2000 m for Argo matchups, the
@@ -205,3 +212,24 @@ end-to-end bias-recovery test.
 
 The same suite runs against whichever catalog is configured, so it is also the
 gate for a real-data swap.
+
+### Feature status against spec section 5
+
+Built and verified: map mode, rectangle selection with four corner handles,
+2D-to-3D transition, block mode with seabed mesh, ray-marched volume rendering,
+4D timeline, chlorophyll as a first-class variable, Argo and glider instruments
+as 3D instanced geometry coloured by model-observation error, NetCDF and CSV
+ingestion, the parser registry, variable selector, vertical exaggeration,
+simultaneous model + observation overlay, model-vs-observation comparison, and
+the CF / WMS / OPeNDAP standards surface.
+
+Backend complete but not yet wired into the UI: isosurface extraction
+(`/api/isosurface` returns valid glTF) and the climatology anomaly layer
+(`/api/anomaly`).
+
+Not implemented: the animated GPU current-particle layer (the toggle is
+present, the shader is not), colorbar min/max and log/linear editing, and the
+distinct torpedo geometry and trajectory curve for gliders -- they currently
+render with the same capsule as floats. The extrude transition is a camera and
+opacity crossfade rather than the pixel-registered map-to-block hand-off
+described in the plan.
