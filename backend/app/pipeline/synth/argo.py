@@ -59,7 +59,7 @@ def _seabed_depth(lon: float, lat: float, gp: GridProfile, cache: dict) -> float
     return float(-elev[i, j])
 
 
-def _drift(lon: float, lat: float, day: float, days: float) -> tuple[float, float]:
+def _drift(lon: float, lat: float, day: float, days: float, domain) -> tuple[float, float]:
     """Advect a parked float by the synthetic velocity field at PARK_DEPTH.
 
     `currents` differentiates a streamfunction, so it needs at least three
@@ -69,7 +69,7 @@ def _drift(lon: float, lat: float, day: float, days: float) -> tuple[float, floa
     lons = np.array([lon - h, lon, lon + h])
     lats = np.array([lat - h, lat, lat + h])
     depth = np.array([PARK_DEPTH])
-    u, v = fields.currents(lons, lats, depth, day)
+    u, v = fields.currents(lons, lats, depth, day, domain)
     u_c, v_c = float(u[0, 1, 1]), float(v[0, 1, 1])
     # m/s -> degrees over `days`; the park depth damps the surface flow heavily.
     dx = u_c / (111_320.0 * np.cos(np.deg2rad(lat))) * 86400.0 * days
@@ -84,6 +84,7 @@ def write_floats(
     rng = np.random.default_rng(seed + 101)
     outdir.mkdir(parents=True, exist_ok=True)
     cache: dict = {}
+    dom = gp.domain()
 
     t0 = pd.Timestamp(gp.start)
     span_days = float(gp.n_steps - 1)
@@ -121,7 +122,7 @@ def write_floats(
         clon, clat = lon, lat
         for p, day in enumerate(days):
             if p > 0:
-                clon, clat = _drift(clon, clat, day, CYCLE_DAYS)
+                clon, clat = _drift(clon, clat, day, CYCLE_DAYS, dom)
                 clon = float(np.clip(clon, gp.west + 0.05, gp.east - 0.05))
                 clat = float(np.clip(clat, gp.south + 0.05, gp.north - 0.05))
             lons[p], lats[p] = clon, clat
@@ -135,8 +136,8 @@ def write_floats(
             lon2 = np.array([[clon]])
             lat2 = np.array([[clat]])
             z = PRES_LEVELS[valid].astype(float)
-            t_true = fields.temperature(lon2, lat2, z, float(day))[:, 0, 0]
-            s_true = fields.salinity(lon2, lat2, z, float(day))[:, 0, 0]
+            t_true = fields.temperature(lon2, lat2, z, float(day), dom)[:, 0, 0]
+            s_true = fields.salinity(lon2, lat2, z, float(day), dom)[:, 0, 0]
 
             # depth-correlated noise (smooth, not white) + systematic bias.
             # np.convolve(mode="same") returns max(len(signal), len(kernel)), so

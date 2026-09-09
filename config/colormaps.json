@@ -1,0 +1,69 @@
+{
+  "_comment": "Shared by the backend PNG renderer (services/raster.py) and the frontend WebGL LUT (lib/color/colormaps.ts). One definition, so a tile and a volume of the same variable are never coloured differently. Stops are [position, r, g, b] with position in 0..1 and channels in 0..255. Palettes approximate the cmocean family, which is the de facto standard in oceanography and is perceptually uniform.",
+  "colormaps": {
+    "thermal": {
+      "label": "Thermal",
+      "description": "Sequential, for temperature.",
+      "stops": [
+        [0.0, 3, 35, 51],
+        [0.15, 40, 44, 116],
+        [0.3, 92, 51, 136],
+        [0.45, 145, 62, 122],
+        [0.6, 194, 82, 92],
+        [0.75, 230, 121, 55],
+        [0.9, 240, 174, 33],
+        [1.0, 232, 231, 87]
+      ]
+    },
+    "haline": {
+      "label": "Haline",
+      "description": "Sequential, for salinity.",
+      "stops": [
+        [0.0, 41, 24, 107],
+        [0.15, 26, 60, 133],
+        [0.3, 12, 96, 125],
+        [0.45, 32, 128, 111],
+        [0.6, 71, 158, 89],
+        [0.75, 130, 185, 63],
+        [0.9, 200, 204, 66],
+        [1.0, 253, 238, 153]
+      ]
+    },
+    "delta": {
+      "label": "Delta",
+      "description": "Diverging, for velocities and anomalies. Zero maps to the pale midpoint.",
+      "diverging": true,
+      "stops": [
+        [0.0, 16, 31, 63],
+        [0.15, 27, 79, 133],
+        [0.3, 71, 138, 173],
+        [0.45, 163, 199, 199],
+        [0.5, 253, 253, 226],
+        [0.55, 199, 195, 137],
+        [0.7, 150, 152, 62],
+        [0.85, 88, 106, 39],
+        [1.0, 34, 55, 22]
+      ]
+    },
+    "algae": {
+      "label": "Algae",
+      "description": "Sequential, for chlorophyll. Usually paired with a log scale.",
+      "stops": [
+        [0.0, 215, 249, 208],
+        [0.2, 160, 214, 158],
+        [0.4, 100, 178, 113],
+        [0.6, 48, 140, 80],
+        [0.8, 21, 99, 55],
+        [1.0, 14, 58, 33]
+      ]
+    },
+    "gray": {
+      "label": "Greyscale",
+      "description": "Neutral fallback, and used for bathymetry shading.",
+      "stops": [
+        [0.0, 20, 20, 24],
+        [1.0, 245, 245, 245]
+      ]
+    }
+  }
+}

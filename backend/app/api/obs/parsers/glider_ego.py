@@ -87,7 +87,7 @@ class GliderEGOParser:
                 refs.append(
                     ProfileRef(
                         platform=self.platform,
-                        id=f"{code}#{i}",
+                        id=f"{code}:{i}",
                         lat=lat,
                         lon=lon,
                         time=iso,

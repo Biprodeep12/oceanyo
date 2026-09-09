@@ -33,6 +33,16 @@ class GridProfile:
     bgc_resolution: float = 0.25
     bgc_step_days: int = 5
 
+    def domain(self):
+        """Extent the analytic fields normalize against.
+
+        Must be the profile extent, not the extent of whatever array is
+        being evaluated, or grid-wide and point-wise evaluation diverge.
+        """
+        from .fields import Domain
+
+        return Domain(self.west, self.south, self.east, self.north)
+
 
 PROFILES: dict[str, GridProfile] = {
     # Fast restarts while iterating.
@@ -77,9 +87,15 @@ def depth_levels(n: int, max_depth: float) -> np.ndarray:
     b = np.log(1.0 + (max_depth / target_shallow)) / (n - 1 - half + 1e-9)
     b = float(np.clip(b, 0.03, 0.35))
     raw = np.exp(b * k) - 1.0
-    z = raw / raw[-1] * max_depth
-    z[0] = round(float(max_depth) * 0.00025, 3)  # ~0.5 m at 2000 m, like GLORYS
-    return np.round(z, 3)
+    # Map the curve onto [z_surface, max_depth] rather than overwriting z[0]
+    # afterwards: overwriting makes the axis non-monotonic at the surface, and
+    # a non-monotonic index breaks every xarray .sel() downstream.
+    z_surface = round(float(max_depth) * 0.00025, 3)  # ~0.5 m at 2000 m, like GLORYS
+    z = z_surface + (raw / raw[-1]) * (max_depth - z_surface)
+    z = np.round(z, 3)
+    if not np.all(np.diff(z) > 0):
+        raise ValueError(f"depth axis is not strictly increasing: {z[:5]}")
+    return z
 
 
 def axes_for(profile: GridProfile) -> dict[str, np.ndarray]:

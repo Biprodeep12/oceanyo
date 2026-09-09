@@ -1,0 +1,99 @@
+"""XYZ raster tiles for map mode."""
+
+from __future__ import annotations
+
+import math
+
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Response
+
+from ...core.conventions import CANONICAL
+from ...core.geometry import BBox
+from ..datastore import DataStore, get_store
+from ..services import raster
+
+router = APIRouter(tags=["tiles"])
+
+TILE_SIZE = 256
+
+
+def _tile_bounds(z: int, x: int, y: int) -> BBox:
+    """Web Mercator XYZ tile -> geographic bounds."""
+    n = 2.0**z
+    west = x / n * 360.0 - 180.0
+    east = (x + 1) / n * 360.0 - 180.0
+    north = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    south = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+    return BBox(west, south, east, north)
+
+
+def _blank_tile() -> Response:
+    png = raster.colormap_png(np.full((1, 1), np.nan), vmin=0, vmax=1, cmap="gray")
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get("/tiles/{variable}/{time}/{depth}/{z}/{x}/{y}.png")
+def tile(
+    variable: str, time: str, depth: float, z: int, x: int, y: int,
+    store: DataStore = Depends(get_store),
+) -> Response:
+    """One 256x256 map tile.
+
+    `time` accepts the literal string "latest" so a URL template can omit real
+    timestamps while the user is only panning around.
+    """
+    try:
+        cfd = store.dataset_for(variable)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    bounds = _tile_bounds(z, x, y)
+    extent = cfd.bbox()
+    clipped = bounds.clamp_to(extent)
+    if clipped.is_empty():
+        return _blank_tile()
+
+    when = None if time in ("latest", "-", "") else time
+    values, coords = cfd.select(variable, bbox=clipped, time=when, depth=depth)
+    plane = values[0]
+    if plane.size == 0:
+        return _blank_tile()
+
+    cv = CANONICAL[variable]
+    lat = np.asarray(coords["lat"], dtype=float)
+    lon = np.asarray(coords["lon"], dtype=float)
+
+    # Resample onto the pixel grid. Nearest neighbour is right here: these are
+    # model cells, not a photograph, and at typical zooms one cell covers many
+    # pixels. Mercator rows are not linear in latitude, hence the arctan/sinh.
+    px_lon = np.linspace(bounds.west, bounds.east, TILE_SIZE)
+    n = 2.0**z
+    ys = np.linspace(y, y + 1, TILE_SIZE)
+    px_lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * ys / n))))
+
+    ix = np.searchsorted(lon, px_lon).clip(0, len(lon) - 1)
+    iy = np.searchsorted(lat, px_lat).clip(0, len(lat) - 1)
+    grid = plane[np.ix_(iy, ix)]
+
+    # Blank any pixel outside the real data extent.
+    outside_lon = ((px_lon < extent.west) | (px_lon > extent.east))[None, :]
+    outside_lat = ((px_lat < extent.south) | (px_lat > extent.north))[:, None]
+    grid = np.where(outside_lon | outside_lat, np.nan, grid)
+
+    png = raster.colormap_png(
+        grid,
+        vmin=cv.valid[0],
+        vmax=cv.valid[1],
+        cmap=cv.cmap,
+        log=cv.log,
+        flip_y=False,  # px_lat already runs north -> south
+    )
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

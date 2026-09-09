@@ -94,7 +94,7 @@ class ArgoNetCDFParser:
                 refs.append(
                     ProfileRef(
                         platform=self.platform,
-                        id=f"{wmo}#{i}",
+                        id=f"{wmo}:{i}",
                         lat=lat,
                         lon=lon,
                         time=iso,

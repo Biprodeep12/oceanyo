@@ -34,6 +34,7 @@ def write_deployments(
     rng = np.random.default_rng(seed + 202)
     outdir.mkdir(parents=True, exist_ok=True)
     t0 = pd.Timestamp(gp.start)
+    dom = gp.domain()
     written: list[Path] = []
 
     for d in range(n_deployments):
@@ -81,8 +82,8 @@ def write_deployments(
             lon2 = np.array([[lon]])
             lat2 = np.array([[lat]])
             z = levels.astype(float)
-            t_true = fields.temperature(lon2, lat2, z, day)[:, 0, 0]
-            s_true = fields.salinity(lon2, lat2, z, day)[:, 0, 0]
+            t_true = fields.temperature(lon2, lat2, z, day, dom)[:, 0, 0]
+            s_true = fields.salinity(lon2, lat2, z, day, dom)[:, 0, 0]
 
             w = rng.standard_normal(n_lev)
             smooth = np.convolve(w, np.ones(5) / 5.0, mode="same")

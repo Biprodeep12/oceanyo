@@ -28,10 +28,10 @@ climatology:
 
 observations:
   - platform: argo
-    parser: argo_synthetic
+    parser: argo_netcdf
     uri: data/synthetic/argo
   - platform: glider
-    parser: glider_synthetic
+    parser: glider_ego
     uri: data/synthetic/glider
 
 defaults:

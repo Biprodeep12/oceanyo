@@ -44,6 +44,7 @@ def write_model(profile: GridProfile, out: Path, *, seed: int = 7) -> Path:
     ax = axes_for(profile)
     lon, lat, depth, time = ax["lon"], ax["lat"], ax["depth"], ax["time"]
     lon2, lat2 = np.meshgrid(lon, lat)
+    dom = profile.domain()
 
     elev = bathy.elevation(lon, lat, profile, seed=seed)
     mask = bathy.water_mask(elev, depth)  # (depth, lat, lon) True where water
@@ -59,9 +60,9 @@ def write_model(profile: GridProfile, out: Path, *, seed: int = 7) -> Path:
     t0 = pd.Timestamp(time[0])
     for i, ts in enumerate(time):
         day = float((pd.Timestamp(ts) - t0).days)
-        thetao[i] = fields.temperature(lon2, lat2, depth, day)
-        so[i] = fields.salinity(lon2, lat2, depth, day)
-        u, v = fields.currents(lon, lat, depth, day)
+        thetao[i] = fields.temperature(lon2, lat2, depth, day, dom)
+        so[i] = fields.salinity(lon2, lat2, depth, day, dom)
+        u, v = fields.currents(lon, lat, depth, day, dom)
         uo[i], vo[i] = u, v
 
     # Blank everything below the seabed. NaN is the fill value, and it becomes
@@ -115,6 +116,7 @@ def write_bgc(profile: GridProfile, out: Path) -> Path:
     ax = bgc_axes_for(profile)
     lon, lat, depth, time = ax["lon"], ax["lat"], ax["depth"], ax["time"]
     lon2, lat2 = np.meshgrid(lon, lat)
+    dom = profile.domain()
 
     elev = bathy.elevation(lon, lat, profile, seed=7)
     mask = bathy.water_mask(elev, depth)
@@ -124,7 +126,7 @@ def write_bgc(profile: GridProfile, out: Path) -> Path:
     t0 = pd.Timestamp(time[0])
     for i, ts in enumerate(time):
         day = float((pd.Timestamp(ts) - t0).days)
-        chl[i] = fields.chlorophyll(lon2, lat2, depth, day)
+        chl[i] = fields.chlorophyll(lon2, lat2, depth, day, dom)
     chl[:, ~mask] = np.float32(np.nan)
 
     coords = _coord_vars(lon, lat, depth, time)
@@ -197,14 +199,15 @@ def write_climatology(profile: GridProfile, out: Path) -> Path:
     ax = axes_for(profile)
     lon, lat, depth = ax["lon"], ax["lat"], ax["depth"]
     lon2, lat2 = np.meshgrid(lon, lat)
+    dom = profile.domain()
 
     elev = bathy.elevation(lon, lat, profile, seed=7)
     mask = bathy.water_mask(elev, depth)
 
     sample_days = np.linspace(0, 364, 24)
     with fields.no_eddies():
-        t_stack = np.stack([fields.temperature(lon2, lat2, depth, d) for d in sample_days])
-        s_stack = np.stack([fields.salinity(lon2, lat2, depth, d) for d in sample_days])
+        t_stack = np.stack([fields.temperature(lon2, lat2, depth, d, dom) for d in sample_days])
+        s_stack = np.stack([fields.salinity(lon2, lat2, depth, d, dom) for d in sample_days])
 
     def _stats(stack):
         mean = stack.mean(axis=0).astype(np.float32)
