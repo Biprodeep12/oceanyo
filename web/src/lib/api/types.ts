@@ -229,3 +229,119 @@ export interface SliceResponse {
   vmax: number;
   values: (number | null)[][];
 }
+
+/**
+ * One cell of GET /api/coverage.
+ *
+ * Five Level-2 map layers read this same feature -- coverage, blind spots,
+ * model accuracy, confidence, freshness -- because they are one computation
+ * seen from different angles. Splitting them into five endpoints would let the
+ * layers disagree about which cell a float falls in.
+ */
+export interface CoverageCellProps {
+  count: number;
+  platforms: string[];
+  lastTime: string | null;
+  /** Days between this cell's newest observation and the model's last step. */
+  ageDays: number | null;
+  bias: number | null;
+  rmse: number | null;
+  levels: number;
+  /** 0..1: how much evidence there is, times how well it agrees. */
+  confidence: number | null;
+  ocean: boolean;
+  blindSpot: boolean;
+}
+
+export interface CoverageSummary {
+  variable: string;
+  units: string;
+  cellDeg: number;
+  gridDeg: number | null;
+  bbox: BBox;
+  cells: number;
+  oceanCells: number;
+  observedCells: number;
+  blindSpots: number;
+  coverage: number | null;
+  profiles: number;
+  scored: number;
+  truncated: boolean;
+  regionalRmse: number | null;
+  sigma: number;
+  referenceTime: string | null;
+  /** Whether `referenceTime` came from the model record or the float record. */
+  referenceSource: "model" | "observations";
+  windowDays: number | null;
+  maskedByBathymetry: boolean;
+  modelSource: string;
+}
+
+export interface CoverageResponse {
+  type: "FeatureCollection";
+  features: {
+    type: "Feature";
+    geometry: GeoJSON.Polygon;
+    properties: CoverageCellProps;
+  }[];
+  summary: CoverageSummary;
+}
+
+/** Which property of a coverage cell drives its colour. */
+export type CoverageMetric = "count" | "blindSpot" | "bias" | "rmse" | "confidence" | "ageDays";
+
+export interface ProvenanceDataset {
+  role: string;
+  file: string;
+  path: string;
+  variables: string[];
+  rawVariables: string[];
+  shape: Record<string, number>;
+  bbox: BBox;
+  timeRange: [string, string] | null;
+  steps: number;
+  stepHours: number | null;
+  attrs: Record<string, string>;
+}
+
+export interface ProvenanceResponse {
+  catalogId: string;
+  source: string;
+  synthetic: boolean;
+  catalogFile: string;
+  datasets: ProvenanceDataset[];
+  observations: {
+    platform: string;
+    parser: string;
+    path: string;
+    profiles: number;
+    latest: string | null;
+  }[];
+  parsers: ParserCapabilities[];
+  disclaimer: string;
+}
+
+/** One instrument in GET /api/instruments -- a float or a glider, not a cast. */
+export interface InstrumentSummary {
+  instrument: string;
+  platform: string;
+  profiles: number;
+  trajectoryKm: number;
+  first: string;
+  last: string;
+  lon: number;
+  lat: number;
+  dataMode: string;
+  meanAbsBias: number | null;
+  rmse: number | null;
+  matched: number;
+  lastProfileId: string;
+}
+
+export interface InstrumentQueryResponse {
+  sortBy: string;
+  order: string;
+  variable: string | null;
+  instruments: number;
+  results: InstrumentSummary[];
+}

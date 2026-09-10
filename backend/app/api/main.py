@@ -19,10 +19,12 @@ from ..core.catalog import Catalog
 from ..core.config import settings
 from .datastore import get_store, init_store, shutdown_store
 from .routers import (
+    assessment,
     bathymetry,
     catalog as catalog_router,
     currents,
     fields,
+    instruments,
     matchup,
     observations,
     tiles,
@@ -117,7 +119,9 @@ def create_app() -> FastAPI:
     app.include_router(bathymetry.router)
     app.include_router(currents.router)
     app.include_router(observations.router)
+    app.include_router(instruments.router)
     app.include_router(matchup.router)
+    app.include_router(assessment.router)
     app.include_router(tiles.router)
     # WCS is ours, not xpublish's: MVP item 21 names WMS/WCS together, and no
     # xpublish plugin serves coverages.

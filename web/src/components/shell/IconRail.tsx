@@ -8,24 +8,36 @@
 
 import { useEffect, useState } from "react";
 
+import ProvenancePanel from "@/components/panels/ProvenancePanel";
 import { Popover, Slider } from "@/components/ui";
 import {
+  IconDownload,
   IconDraw,
   IconInfo,
   IconLayers,
   IconMinus,
   IconMoon,
   IconPlus,
+  IconReceipt,
   IconRegion,
   IconSettings,
   IconSun,
 } from "@/components/ui/icons";
+import { api } from "@/lib/api/client";
+import type { ProvenanceResponse } from "@/lib/api/types";
+import {
+  exportCoverageCsv,
+  exportMatchupCsv,
+  exportSessionJson,
+  exportViewPng,
+} from "@/lib/report/export";
+import { permalink } from "@/lib/session/permalink";
 import { useIsMobile } from "@/state/useMediaQuery";
 import { probeGpu, type GpuCaps } from "@/three/caps";
 import { viewport } from "@/lib/viewport";
 import { useSessionStore } from "@/state/useSessionStore";
 
-type PanelId = "regions" | "settings" | "info" | null;
+type PanelId = "regions" | "settings" | "info" | "provenance" | "export" | null;
 
 function RailButton({
   label,
@@ -69,7 +81,27 @@ export default function IconRail() {
   const setDrawMode = useSessionStore((s) => s.setDrawMode);
   const layersOpen = useSessionStore((s) => s.layersOpen);
   const setLayersOpen = useSessionStore((s) => s.setLayersOpen);
+  const variable = useSessionStore((s) => s.variable);
+  const coverage = useSessionStore((s) => s.coverage);
   const mobile = useIsMobile();
+
+  // Fetched once, lazily, and reused by both the provenance panel and every
+  // export: a CSV of numbers without the header naming the model that produced
+  // them is exactly the artefact this platform exists to stop people making.
+  const [prov, setProv] = useState<ProvenanceResponse | null>(null);
+  useEffect(() => {
+    if (!open || prov) return;
+    if (open !== "export" && open !== "provenance") return;
+    const ac = new AbortController();
+    api.provenance(ac.signal).then(setProv).catch(() => {});
+    return () => ac.abort();
+  }, [open, prov]);
+
+  const [note, setNote] = useState<string>("");
+  const say = (msg: string) => {
+    setNote(msg);
+    setTimeout(() => setNote(""), 2600);
+  };
 
   const toggle = (id: Exclude<PanelId, null>) =>
     setOpen((cur) => (cur === id ? null : id));
@@ -243,6 +275,96 @@ export default function IconRail() {
               </div>
             </Popover>
           )}
+          {open === "provenance" && (
+            <Popover title="Provenance" onClose={() => setOpen(null)}>
+              <ProvenancePanel />
+            </Popover>
+          )}
+
+          {open === "export" && (
+            <Popover title="Export" onClose={() => setOpen(null)}>
+              <div className="px-4 pb-1 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
+                Every export carries its provenance: the CSVs open with the
+                model, catalogue and QC convention as comment lines, and the
+                JSON embeds the full record.
+              </div>
+              <div className="mt-1 flex flex-col">
+                <button
+                  className="ze-row justify-start"
+                  onClick={() =>
+                    exportViewPng().then(
+                      () => say("image saved"),
+                      (e) => say(String(e.message ?? e)),
+                    )
+                  }
+                >
+                  <IconDownload />
+                  <span>View as PNG</span>
+                </button>
+                <button
+                  className="ze-row justify-start"
+                  onClick={async () => {
+                    try {
+                      const r = await api.matchupSummary({ variable, limit: 1000 });
+                      exportMatchupCsv(r.results, prov);
+                      say(`${r.scored} scored profiles written`);
+                    } catch (e) {
+                      say(String(e));
+                    }
+                  }}
+                >
+                  <IconDownload />
+                  <span>Model&ndash;observation table (CSV)</span>
+                </button>
+                <button
+                  className="ze-row justify-start"
+                  disabled={!coverage}
+                  title={coverage ? undefined : "turn on an assessment layer first"}
+                  onClick={() => {
+                    if (!coverage) return;
+                    exportCoverageCsv(coverage, prov);
+                    say(`${coverage.features.length} cells written`);
+                  }}
+                >
+                  <IconDownload />
+                  <span>Assessment grid (CSV)</span>
+                </button>
+                <button
+                  className="ze-row justify-start"
+                  onClick={() => {
+                    exportSessionJson(prov);
+                    say("session saved");
+                  }}
+                >
+                  <IconDownload />
+                  <span>Session + provenance (JSON)</span>
+                </button>
+                <button
+                  className="ze-row justify-start"
+                  onClick={async () => {
+                    const url = permalink();
+                    try {
+                      await navigator.clipboard.writeText(url);
+                      say("link copied");
+                    } catch {
+                      // A clipboard write needs a secure context and a user
+                      // gesture, and neither is guaranteed on a demo machine.
+                      // The URL bar already holds the same link.
+                      say("copy blocked; the address bar holds the link");
+                    }
+                  }}
+                >
+                  <IconReceipt />
+                  <span>Copy a link to this view</span>
+                </button>
+              </div>
+              {note && (
+                <div className="px-4 pb-2 pt-1.5 text-[10.5px] text-[color:var(--ze-accent,#4fd1c5)]">
+                  {note}
+                </div>
+              )}
+            </Popover>
+          )}
         </div>
       )}
 
@@ -284,6 +406,20 @@ export default function IconRail() {
           onClick={() => toggle("settings")}
         >
           <IconSettings />
+        </RailButton>
+        <RailButton
+          label="Provenance"
+          active={open === "provenance"}
+          onClick={() => toggle("provenance")}
+        >
+          <IconReceipt />
+        </RailButton>
+        <RailButton
+          label="Export"
+          active={open === "export"}
+          onClick={() => toggle("export")}
+        >
+          <IconDownload />
         </RailButton>
         <RailButton label="About this data" active={open === "info"} onClick={() => toggle("info")}>
           <IconInfo />

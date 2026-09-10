@@ -1,8 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import CommandPalette from "@/components/shell/CommandPalette";
 import HoverBubble from "@/components/shell/HoverBubble";
 import IconRail from "@/components/shell/IconRail";
 import LayersPanel from "@/components/shell/LayersPanel";
@@ -14,7 +15,9 @@ import StatusBar from "@/components/shell/StatusBar";
 import Timeline from "@/components/shell/Timeline";
 import MatchupPanel from "@/components/panels/MatchupPanel";
 import { api } from "@/lib/api/client";
+import { applySnapshot, readHash, startPermalinkSync } from "@/lib/session/permalink";
 import { initialTheme } from "@/lib/theme";
+import { registerModeActions } from "@/lib/viewport";
 import { useIsTouch } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -42,15 +45,44 @@ export default function Page() {
   // Telling a phone user to hold shift is worse than saying nothing.
   const touch = useIsTouch();
 
-  // --- theme, before anything paints ---
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // --- theme and any shared session, before anything paints ---
   useEffect(() => {
-    useSessionStore.getState().setTheme(initialTheme());
+    const shared = readHash();
+    // An explicit theme in a shared link wins over this machine's preference:
+    // the point of sending someone a link is that they see what you saw.
+    useSessionStore.getState().setTheme(shared?.theme ?? initialTheme());
+    if (shared) applySnapshot(shared);
+    const stop = startPermalinkSync();
     // Debug handle, alongside `__map` and `__floatPoints`. The browser test
     // needs to select a region derived from the DATA -- where the gliders in
     // this particular catalog actually are -- rather than a preset that only
     // matches the synthetic layout. Driving that through the map would mean
     // simulating a pixel drag whose meaning depends on the current zoom.
     (window as unknown as { __store?: unknown }).__store = useSessionStore;
+    return stop;
+  }, []);
+
+  // --- Ctrl/Cmd+K opens search ---
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+      // "/" is the other convention, but only when nothing is being typed
+      // into -- otherwise it swallows the character in the search box itself.
+      if (
+        e.key === "/" &&
+        !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+      ) {
+        e.preventDefault();
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // --- bootstrap the catalog ---
@@ -151,6 +183,10 @@ export default function Page() {
     rafRef.current = requestAnimationFrame(step);
   };
 
+  // The palette can extrude too, so the two actions are published on the same
+  // bus the zoom controls use rather than duplicated.
+  useEffect(() => registerModeActions(dive, back));
+
   const inBlock = phase === "extruding" || phase === "holding" || phase === "block";
   const settling = phase === "extruding" || phase === "holding";
 
@@ -240,6 +276,7 @@ export default function Page() {
         <LocatorInset />
       </div>
 
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <SelectionTag />
       <HoverBubble />
       <StatusBar />

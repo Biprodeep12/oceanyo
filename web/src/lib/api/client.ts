@@ -12,8 +12,11 @@ import type {
   MatchupResult,
   MatchupSummaryRow,
   ObservationCollection,
+  CoverageResponse,
+  InstrumentQueryResponse,
   ObservationProfile,
   ParserCapabilities,
+  ProvenanceResponse,
   RegionPreset,
   SectionResponse,
   SliceResponse,
@@ -81,6 +84,52 @@ export const api = {
     if (opts.platform) p.set("platform", opts.platform);
     if (opts.limit) p.set("limit", String(opts.limit));
     return getJSON<ObservationCollection>(`/api/observations?${p}`, signal);
+  },
+
+  provenance: (signal?: AbortSignal) =>
+    getJSON<ProvenanceResponse>("/api/provenance", signal),
+
+  /**
+   * The Level 2 assessment grid: coverage, blind spots, accuracy, confidence
+   * and freshness in one payload. The client chooses which property to colour
+   * by; the server never needs to know which layer is on screen.
+   */
+  coverage: (
+    opts: { bbox?: BBox; variable: string; windowDays?: number; cell?: number },
+    signal?: AbortSignal,
+  ) => {
+    const p = new URLSearchParams({ var: opts.variable });
+    if (opts.bbox) p.set("bbox", bboxParam(opts.bbox));
+    if (opts.windowDays) p.set("windowDays", String(opts.windowDays));
+    if (opts.cell) p.set("cell", String(opts.cell));
+    return getJSON<CoverageResponse>(`/api/coverage?${p}`, signal);
+  },
+
+  /**
+   * Rank instruments -- `query_floats` from spec 5.2.
+   *
+   * Server-side on purpose: "which floats disagree most with the model" is a
+   * measurement over the observation index, and a language layer that answered
+   * it from its own knowledge would be generating a scientific claim.
+   */
+  instruments: (
+    opts: {
+      sortBy: "trajectory_length" | "model_error" | "recency" | "profile_count";
+      order?: "desc" | "asc";
+      limit?: number;
+      platform?: string;
+      bbox?: BBox;
+      variable?: string;
+    },
+    signal?: AbortSignal,
+  ) => {
+    const p = new URLSearchParams({ sortBy: opts.sortBy });
+    if (opts.order) p.set("order", opts.order);
+    if (opts.limit) p.set("limit", String(opts.limit));
+    if (opts.platform) p.set("platform", opts.platform);
+    if (opts.bbox) p.set("bbox", bboxParam(opts.bbox));
+    if (opts.variable) p.set("var", opts.variable);
+    return getJSON<InstrumentQueryResponse>(`/api/instruments?${p}`, signal);
   },
 
   profile: (platform: string, id: string, signal?: AbortSignal) =>

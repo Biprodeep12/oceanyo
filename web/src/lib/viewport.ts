@@ -12,6 +12,28 @@ export interface ViewportHandlers {
   reset: () => void;
 }
 
+// The extrude is owned by the page, because it drives an rAF tween over store
+// state that neither renderer should be running. The command palette needs to
+// trigger it too, and routing that through the store would mean a boolean that
+// something has to remember to clear. Same pattern as the zoom handlers: the
+// owner registers, callers just call.
+let diveFn: (() => void) | null = null;
+let backFn: (() => void) | null = null;
+
+export function registerModeActions(dive: () => void, back: () => void): () => void {
+  diveFn = dive;
+  backFn = back;
+  return () => {
+    if (diveFn === dive) diveFn = null;
+    if (backFn === back) backFn = null;
+  };
+}
+
+export const modeActions = {
+  dive: () => diveFn?.(),
+  back: () => backFn?.(),
+};
+
 let active: ViewportHandlers | null = null;
 
 export function registerViewport(handlers: ViewportHandlers | null): void {

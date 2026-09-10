@@ -28,6 +28,7 @@ import { usePointer } from "@/state/usePointer";
 import { openProfile } from "@/lib/api/openProfile";
 import { token, tokenNumber } from "@/lib/theme";
 import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
+import { coverageStyle } from "@/lib/geo/coverageStyle";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
 
@@ -36,6 +37,9 @@ const FIELD_LAYER = "ocean-field-layer";
 const LAND_SOURCE = "land";
 const ANOM_SOURCE = "ocean-anomaly";
 const ANOM_LAYER = "ocean-anomaly-layer";
+const COV_SOURCE = "assessment";
+const COV_FILL = "assessment-fill";
+const COV_LINE = "assessment-line";
 const OBS_SOURCE = "observations";
 const SEL_SOURCE = "selection";
 
@@ -173,6 +177,8 @@ export default function MapView({ visible }: { visible: boolean }) {
   const observations = useSessionStore((s) => s.observations);
   const errorById = useSessionStore((s) => s.errorById);
   const showAnomaly = useSessionStore((s) => s.showAnomaly);
+  const coverageMetric = useSessionStore((s) => s.coverageMetric);
+  const coverage = useSessionStore((s) => s.coverage);
   const anomalyLimit = useSessionStore((s) => s.anomalyLimit);
   const climatologyVars = useSessionStore((s) => s.health?.climatology);
   const showObservations = useSessionStore((s) => s.showObservations);
@@ -193,6 +199,11 @@ export default function MapView({ visible }: { visible: boolean }) {
       center: [88, 14],
       zoom: 4.6,
       attributionControl: { compact: true },
+      // Required for the PNG export. Without it the canvas reads back blank,
+      // silently -- see lib/report/export.ts. MapLibre 6 moved the WebGL
+      // context attributes behind `canvasContextAttributes`; passing the flag
+      // at the top level, as v4 took it, is silently ignored.
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
     map.current = m;
     // debug handle (harmless in production, used by scripts/mapdbg.mjs)
@@ -263,6 +274,31 @@ export default function MapView({ visible }: { visible: boolean }) {
         source: ANOM_SOURCE,
         layout: { visibility: "none" },
         paint: { "raster-opacity": 0.9, "raster-fade-duration": 150 },
+      });
+
+      // The assessment grid: coverage, blind spots, accuracy, bias, confidence
+      // and freshness are one source styled six ways, so switching between
+      // them never refetches and the cells never move under the cursor.
+      m.addSource(COV_SOURCE, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      m.addLayer({
+        id: COV_FILL,
+        type: "fill",
+        source: COV_SOURCE,
+        layout: { visibility: "none" },
+        paint: { "fill-color": "rgba(0,0,0,0)", "fill-opacity": 0.72 },
+      });
+      m.addLayer({
+        id: COV_LINE,
+        type: "line",
+        source: COV_SOURCE,
+        layout: { visibility: "none" },
+        paint: {
+          "line-color": "rgba(255,255,255,0.14)",
+          "line-width": 0.6,
+        },
       });
 
       m.addSource(OBS_SOURCE, {
@@ -603,6 +639,85 @@ export default function MapView({ visible }: { visible: boolean }) {
     const src = m.getSource(ANOM_SOURCE) as maplibregl.RasterTileSource | undefined;
     src?.setTiles([anomalyTemplate(variable, time ?? "latest", depth, anomalyLimit)]);
   }, [showAnomaly, anomalyLimit, variable, depth, time, ready, climatologyVars]);
+
+  // --- assessment grid: fetch ---
+  //
+  // Keyed on the DOMAIN, not the selection: these layers answer "where is the
+  // observing network thin" and "where is the model weak", which are questions
+  // about the whole region a user is choosing within. Refetching them on every
+  // corner drag would also make the most expensive endpoint the twitchiest.
+  useEffect(() => {
+    if (!coverageMetric) return;
+    const ac = new AbortController();
+    const st = useSessionStore.getState();
+    st.setLoadingCoverage(true);
+    api
+      .coverage({ variable, bbox: domain ?? undefined }, ac.signal)
+      .then((c) => useSessionStore.getState().setCoverage(c))
+      .catch((e) => {
+        if ((e as Error).name !== "AbortError") console.warn("coverage:", e);
+      })
+      .finally(() => useSessionStore.getState().setLoadingCoverage(false));
+    return () => ac.abort();
+  }, [coverageMetric, variable, domain]);
+
+  // --- assessment grid: draw ---
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const on = Boolean(coverageMetric);
+    for (const id of [COV_FILL, COV_LINE]) {
+      m.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+    }
+    if (!on || !coverageMetric) return;
+    const src = m.getSource(COV_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    src?.setData(
+      (coverage ?? { type: "FeatureCollection", features: [] }) as GeoJSON.FeatureCollection,
+    );
+    const { paint } = coverageStyle(coverageMetric, coverage);
+    m.setPaintProperty(COV_FILL, "fill-color", paint as never);
+  }, [coverageMetric, coverage, ready]);
+
+  // --- assessment grid: what one cell says ---
+  //
+  // The layer shows a pattern; a reviewer immediately asks for the number
+  // behind one square. Hovering answers that without a click, and without a
+  // panel that has to be dismissed.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready || !coverageMetric) return;
+    const popup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      className: "ze-map-popup",
+      offset: 8,
+    });
+    const move = (e: MapMouseEvent & { features?: maplibregl.MapGeoJSONFeature[] }) => {
+      const p = e.features?.[0]?.properties as Record<string, unknown> | undefined;
+      if (!p) return;
+      const num = (k: string, digits = 2, unit = "") =>
+        typeof p[k] === "number" ? `${(p[k] as number).toFixed(digits)}${unit}` : "&mdash;";
+      const u = coverage?.summary.units ?? "";
+      popup
+        .setLngLat(e.lngLat)
+        .setHTML(
+          `<b>${p.count ?? 0} profile${p.count === 1 ? "" : "s"}</b>` +
+            `<br/>bias ${num("bias", 3, ` ${u}`)} &middot; RMSE ${num("rmse", 3)}` +
+            `<br/>confidence ${num("confidence")} &middot; age ${num("ageDays", 0, " d")}` +
+            (p.lastTime ? `<br/>last ${String(p.lastTime).slice(0, 10)}` : "") +
+            (p.blindSpot ? `<br/><i>unobserved ocean</i>` : ""),
+        )
+        .addTo(m);
+    };
+    const leave = () => popup.remove();
+    m.on("mousemove", COV_FILL, move);
+    m.on("mouseleave", COV_FILL, leave);
+    return () => {
+      m.off("mousemove", COV_FILL, move);
+      m.off("mouseleave", COV_FILL, leave);
+      popup.remove();
+    };
+  }, [coverageMetric, coverage, ready]);
 
   // --- observation markers ---
   useEffect(() => {

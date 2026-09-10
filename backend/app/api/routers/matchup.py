@@ -7,29 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ...core.geometry import BBox
 from ...core.models import MatchupResult
 from ..datastore import DataStore, get_store
-from ..services.matchup import QC_DISPLAY, QC_QUANTITATIVE, compute_matchup, summarize
+from ..services.matchup import (
+    QC_DISPLAY,
+    QC_QUANTITATIVE,
+    compute_matchup,
+    default_window_hours,
+    summarize,
+)
 
 router = APIRouter(prefix="/api", tags=["matchup"])
 
-
-
-def _default_window(cfd, requested: float | None) -> float:
-    """Colocation window: what the caller asked for, else half a model step.
-
-    A fixed 24 h default silently assumes a daily model. Point the same code at
-    monthly means -- which is what a year-long Indian Ocean subset is -- and the
-    nearest step is up to fifteen days from the profile, so every matchup is
-    rejected and the panel reports "no matchup" for data that matches perfectly
-    well. Half the model's own spacing is the widest window in which the nearest
-    step is genuinely the closest one, and it is correct for daily, 3-daily and
-    monthly alike without anyone choosing a number.
-    """
-    if requested is not None:
-        return requested
-    step = cfd.step_hours()
-    if step is None:
-        return 24.0
-    return max(24.0, step / 2.0)
 
 
 @router.get("/matchup", response_model=MatchupResult)
@@ -59,7 +46,7 @@ def matchup(
     try:
         return compute_matchup(
             cfd, profile, variable=var,
-            radius_km=radius, window_hours=_default_window(cfd, window), qc_flags=flags,
+            radius_km=radius, window_hours=default_window_hours(cfd, window), qc_flags=flags,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -101,7 +88,7 @@ def matchup_summary(
 
     rows = summarize(
         cfd, profiles, variable=var, radius_km=radius,
-        window_hours=_default_window(cfd, window),
+        window_hours=default_window_hours(cfd, window),
     )
     scored = [r for r in rows if r["rmse"] is not None]
     return {

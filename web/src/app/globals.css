@@ -510,3 +510,40 @@ body {
     opacity: 1;
   }
 }
+
+/* Keyboard hint in the command palette. */
+.ze-kbd {
+  border: 1px solid var(--ze-line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 9.5px;
+  line-height: 1.4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ze-text-faint);
+  white-space: nowrap;
+}
+
+/* MapLibre's popup, dressed as one of our panels.
+   The default is a white bubble with a white tail, which on a dark ocean reads
+   as a rendering artefact rather than a tooltip. The tail is a separate
+   element with its own border colour, so both have to be restyled or the
+   arrow stays white and points at nothing. */
+.ze-map-popup .maplibregl-popup-content {
+  background: var(--ze-panel-solid);
+  color: var(--ze-text-dim);
+  border: 1px solid var(--ze-line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 11px;
+  line-height: 1.55;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+.ze-map-popup .maplibregl-popup-content b {
+  color: var(--ze-text);
+}
+.ze-map-popup .maplibregl-popup-tip {
+  border-top-color: var(--ze-panel-solid);
+  border-bottom-color: var(--ze-panel-solid);
+  border-left-color: var(--ze-panel-solid);
+  border-right-color: var(--ze-panel-solid);
+}

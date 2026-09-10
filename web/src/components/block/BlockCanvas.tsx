@@ -31,7 +31,17 @@ export default function BlockCanvas({ visible }: { visible: boolean }) {
     >
       <Canvas
         camera={{ position: [2.4, 1.9, 2.8], fov: 45, near: 0.01, far: 100 }}
-        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
+        // preserveDrawingBuffer, so the block can be exported as a PNG.
+        // WebGL is free to clear the backbuffer the instant a frame is
+        // composited, and without this flag toDataURL returns a blank image
+        // with no error whatsoever -- the classic "screenshot works in dev,
+        // is transparent in the deck" bug.
+        gl={{
+          antialias: true,
+          alpha: true,
+          powerPreference: "high-performance",
+          preserveDrawingBuffer: true,
+        }}
         dpr={[1, 2]}
       >
         {/* three cannot parse var(--x), so the token is resolved here and

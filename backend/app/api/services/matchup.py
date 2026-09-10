@@ -218,13 +218,38 @@ def compute_matchup(
     )
 
 
+def default_window_hours(cfd: CFDataset, requested: float | None = None) -> float:
+    """Colocation window: what the caller asked for, else half a model step.
+
+    A fixed 24 h default silently assumes a daily model. Point the same code at
+    monthly means -- which is what a year-long Indian Ocean subset is -- and the
+    nearest step is up to fifteen days from the profile, so every matchup is
+    rejected and the caller reports "no matchup" for data that matches perfectly
+    well. Half the model's own spacing is the widest window in which the nearest
+    step is genuinely the closest one, and it is correct for daily, 3-daily and
+    monthly alike without anyone choosing a number.
+
+    This lives here rather than in the router because `summarize`'s own 24 h
+    default is a trap for every OTHER caller: the assessment grid and the
+    instrument ranking both called it plainly and both silently scored 5
+    profiles out of 992 against a monthly model, which reads as a model with
+    nothing to compare against rather than as a wrong constant.
+    """
+    if requested is not None:
+        return requested
+    step = cfd.step_hours()
+    if step is None:
+        return 24.0
+    return max(24.0, step / 2.0)
+
+
 def summarize(
     cfd: CFDataset,
     profiles: list[ObservationProfile],
     *,
     variable: str = "temperature",
     radius_km: float = 25.0,
-    window_hours: float = 24.0,
+    window_hours: float | None = None,
 ) -> list[dict]:
     """Per-profile error magnitude across many profiles.
 
@@ -232,6 +257,7 @@ def summarize(
     colour is its model-observation error, so the colour means information
     rather than decoration.
     """
+    window_hours = default_window_hours(cfd, window_hours)
     out: list[dict] = []
     for p in profiles:
         try:

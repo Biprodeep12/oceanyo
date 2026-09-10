@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 
+import AssessmentSection from "@/components/shell/AssessmentSection";
 import { MenuRow, SectionLabel, Slider } from "@/components/ui";
 import {
   IconAnomaly,
@@ -148,6 +149,11 @@ export default function LayersPanel() {
               {s.health.source}
             </div>
           )}
+
+          {/* Assessment layers describe the region as a whole, so they belong
+              to map mode; inside a block the same questions are answered by
+              the matchup panel for one instrument at a time. */}
+          {!inBlock && <AssessmentSection />}
 
           <SectionLabel>Depth</SectionLabel>
           <Slider

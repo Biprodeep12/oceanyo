@@ -17,6 +17,8 @@ import { create } from "zustand";
 import { applyTheme, type Theme } from "@/lib/theme";
 import type {
   BBox,
+  CoverageMetric,
+  CoverageResponse,
   HealthResponse,
   MatchupResult,
   ObservationFeature,
@@ -82,6 +84,16 @@ export interface SessionState {
   showObservations: boolean;
   /** Climatology anomaly overlay in map mode. */
   showAnomaly: boolean;
+  /**
+   * Which assessment layer is on the map, or null for none.
+   *
+   * One value rather than six booleans: coverage, blind spots, accuracy, bias,
+   * confidence and freshness all colour the SAME grid, so two of them on at
+   * once would just be one hiding the other.
+   */
+  coverageMetric: CoverageMetric | null;
+  coverage: CoverageResponse | null;
+  loadingCoverage: boolean;
   /** Colour saturation of the anomaly layer, in standard deviations. */
   anomalyLimit: number;
   /** Vertical cross-section curtain in block mode. */
@@ -110,6 +122,9 @@ export interface SessionState {
   setPresets: (p: RegionPreset[]) => void;
   setTimes: (t: string[]) => void;
   setDomain: (b: BBox | null) => void;
+  setCoverageMetric: (m: CoverageMetric | null) => void;
+  setCoverage: (c: CoverageResponse | null) => void;
+  setLoadingCoverage: (v: boolean) => void;
   setCoastline: (fc: GeoJSON.FeatureCollection | null) => void;
   setBufferedTimes: (t: string[]) => void;
   setTheme: (t: Theme) => void;
@@ -185,6 +200,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   showObservations: true,
   showAnomaly: false,
   anomalyLimit: 3,
+  coverageMetric: null,
+  coverage: null,
+  loadingCoverage: false,
   showSection: false,
   sectionPoints: [],
   opacity: 0.85,
@@ -205,6 +223,9 @@ export const useSessionStore = create<SessionState>((set) => ({
   setPresets: (presets) => set({ presets }),
   setTimes: (times) => set({ times }),
   setDomain: (domain) => set({ domain }),
+  setCoverageMetric: (coverageMetric) => set({ coverageMetric }),
+  setCoverage: (coverage) => set({ coverage }),
+  setLoadingCoverage: (loadingCoverage) => set({ loadingCoverage }),
   setCoastline: (coastline) => set({ coastline }),
   setBufferedTimes: (bufferedTimes) => set({ bufferedTimes }),
   setTheme: (theme) => {

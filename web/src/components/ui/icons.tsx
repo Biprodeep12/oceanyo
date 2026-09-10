@@ -196,6 +196,35 @@ export const IconLayers = (p: P) => (
 );
 
 /** Sun / moon, for the light-dark switch. */
+export const IconGrid = (p: P) => (
+  <svg {...base} {...p}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="1.5" />
+    <path d="M9.2 3.5v17M14.8 3.5v17M3.5 9.2h17M3.5 14.8h17" />
+  </svg>
+);
+
+export const IconReceipt = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M5.5 3.5h13v17l-2.2-1.4-2.2 1.4-2.1-1.4-2.2 1.4-2.1-1.4-2.2 1.4Z" />
+    <path d="M9 8h6M9 12h6" />
+  </svg>
+);
+
+export const IconSearch = (p: P) => (
+  <svg {...base} {...p}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
+  </svg>
+);
+
+export const IconDownload = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M12 3.5v11" />
+    <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+    <path d="M4.5 19.5h15" />
+  </svg>
+);
+
 export const IconSun = (p: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}
     strokeLinecap="round" {...p}>
