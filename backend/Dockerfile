@@ -11,8 +11,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 # libexpat1 is needed by netCDF4/HDF5 at runtime; the -slim image omits it and
 # the resulting ImportError names a symbol, not a package.
+#
+# libudunits2 is here so the CF-compliance CLAIM is checkable rather than
+# asserted. `cfchecker` depends on `cfunits`, which needs UNIDATA's native
+# UDUNITS-2 -- there is no Windows wheel for it outside conda, which is why the
+# check cannot run on the development machine but runs in one line here:
+#
+#   docker compose run --rm api \
+#     python -m cfchecker.cfchecks -v 1.8 /app/data/real/hycom_indian_ocean.nc
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libexpat1 curl \
+    && apt-get install -y --no-install-recommends \
+        libexpat1 curl libudunits2-0 udunits-bin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -20,7 +29,10 @@ WORKDIR /app
 # Requirements first so the dependency layer survives source edits: this layer
 # takes minutes, the source layer takes a second.
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN pip install --upgrade pip && pip install -r backend/requirements.txt
+COPY backend/requirements-cf.txt ./backend/requirements-cf.txt
+RUN pip install --upgrade pip \
+    && pip install -r backend/requirements.txt \
+    && pip install -r backend/requirements-cf.txt
 
 COPY backend/ ./backend/
 COPY config/ ./config/

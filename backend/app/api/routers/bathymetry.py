@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ...core.cf_adapter import snap_bbox_to_grid
 from ...core.geometry import BBox
 from ..datastore import DataStore, get_store
 
@@ -36,6 +37,10 @@ def bathymetry(
 
     ax = cfd.axes
     da = cfd.ds[store.bathymetry_var]
+    # Bathymetry slices by hand rather than through CFDataset.select, so it
+    # needs the same guard: a box narrower than one cell selects nothing and
+    # `lons[0]` raises. A drag emits exactly that on its first few frames.
+    box = snap_bbox_to_grid(box, cfd.lons, cfd.lats)
     lon_sl = slice(box.west, box.east)
     lat_sl = slice(box.south, box.north)
     da = da.sel({ax.lon: lon_sl, ax.lat: lat_sl})

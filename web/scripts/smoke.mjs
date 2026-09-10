@@ -25,6 +25,10 @@ const browser = await chromium.launch({
   ],
 });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+// A full-viewport ray-march takes tens of seconds per frame on SwiftShader, and
+// Playwright's actionability checks need the main thread to answer. The default
+// 30 s assumes a GPU; on this renderer it fails healthy pages.
+page.setDefaultTimeout(75_000);
 
 page.on("console", (m) => {
   if (m.type() === "error") errors.push(m.text());
@@ -48,7 +52,7 @@ page.on("requestfailed", (r) =>
  */
 const shot = async (name) => {
   const t0 = Date.now();
-  await page.screenshot({ path: `${OUT}/${name}`, timeout: 90000 });
+  await page.screenshot({ path: `${OUT}/${name}`, timeout: 180000 });
   const ms = Date.now() - t0;
   if (ms > 8000) console.log(`
       (${name} took ${(ms / 1000).toFixed(1)}s -- software renderer)`);
@@ -76,6 +80,78 @@ const pickRegion = async (name) => {
  * the working address is how a dead page ships.
  */
 const BASE = process.env.SMOKE_BASE ?? "http://127.0.0.1:3000";
+
+/**
+ * Move the timeline to a step that actually has instruments in view.
+ *
+ * Observations are shown only within one model step of the displayed time, so
+ * whether ANY float is clickable depends on where the scrubber is. The Indian
+ * Ocean catalog opens on July 2023 and the floats in it start in September, so
+ * the first step legitimately has none -- and every instrument assertion after
+ * it failed with "no instruments", which reads like a broken renderer and is
+ * really a calendar. Find a populated step before asserting anything about
+ * instruments.
+ */
+const seekObservations = async () => {
+  const count = async () =>
+    page.evaluate(() => {
+      const m = /(\d+) of \d+ within/.exec(document.body.innerText);
+      return m ? Number(m[1]) : 0;
+    });
+  if ((await count()) > 0) return true;
+  const steps = await page.evaluate(() => {
+    const m = /\/\s*(\d+)/.exec(document.body.innerText);
+    return m ? Number(m[1]) : 1;
+  });
+  for (let i = 1; i < steps; i++) {
+    await page.getByRole("button", { name: "Next step" }).click();
+    await page.waitForTimeout(700);
+    if ((await count()) > 0) return true;
+  }
+  return false;
+};
+
+/**
+ * Click the instrument in the 3D block, at the position the scene reports.
+ *
+ * The old version swept a grid of blind clicks. Two problems: on a software
+ * renderer a fine enough grid takes minutes, and a coarse one only works when
+ * there are enough floats that something is always under the cursor -- which
+ * is how a DEAD raycast passed this step for weeks. Ask the scene where the
+ * instrument is, then click there; if that misses, the raycast is broken and
+ * the test should say so rather than keep looking.
+ */
+const clickFloat = async () => {
+  const pts = await page.evaluate(() => window.__floatPoints?.() ?? []);
+  if (!pts.length) throw new Error("no instruments in the block to click");
+  // A tight ring around each reported position. The point comes from the
+  // scene, so this is not a search -- it absorbs a pixel or two of rounding
+  // between three's projection and the browser's hit test, and nothing more.
+  // If a capsule is not clickable within a few pixels of where the scene says
+  // it is, the raycast is broken and the test should say so.
+  const ring = [[0, 0], [0, -6], [6, 0], [0, 6], [-6, 0], [0, -12], [0, 12]];
+  for (const p of pts) {
+    for (const [dx, dy] of ring) {
+      await page.mouse.click(p.x + dx, p.y + dy);
+      // WAIT for the panel; do not just look. Opening it costs a profile fetch
+      // and a matchup, so an immediate isVisible() is always false and the loop
+      // races on to click somewhere else. The old grid sweep only ever passed
+      // because with thirty floats a later probe's check happened to catch an
+      // earlier probe's panel -- a green step that proved nothing about the
+      // click it was attributed to.
+      const opened = await page
+        .getByText(/profile$/i)
+        .first()
+        .waitFor({ timeout: 8000 })
+        .then(() => true)
+        .catch(() => false);
+      if (opened) return p;
+    }
+  }
+  throw new Error(
+    `raycast missed all ${pts.length} instrument(s) at their own reported positions`,
+  );
+};
 
 const step = async (name, fn) => {
   process.stdout.write(`  ${name.padEnd(38)}`);
@@ -116,8 +192,22 @@ await step("catalog loaded (variables listed)", async () => {
   );
 });
 
-await step("synthetic badge present", async () => {
-  await page.getByText("SYNTHETIC", { exact: true }).first().waitFor({ timeout: 10000 });
+await step("provenance matches the catalog", async () => {
+  // Not "SYNTHETIC is present". The badge must agree with the catalog that is
+  // actually loaded, in BOTH directions: three separate places hardcoded the
+  // word and cheerfully stamped it on genuine HYCOM output. Over-disclosure
+  // looks like caution, so nobody checks for it -- which is exactly why the
+  // assertion has to be two-sided.
+  const health = await page.evaluate(async () => (await fetch("/api/health")).json());
+  const body = await page.evaluate(() => document.body.innerText);
+  const shown = body.includes("SYNTHETIC");
+  if (health.synthetic && !shown) throw new Error("synthetic catalog, no SYNTHETIC badge");
+  if (!health.synthetic && shown) {
+    throw new Error(`real catalog (${health.catalogId}) still labelled SYNTHETIC`);
+  }
+  console.log(`
+      catalog ${health.catalogId} · synthetic=${health.synthetic}`);
+  process.stdout.write(" ".repeat(40));
 });
 
 await step("map canvas rendered", async () => {
@@ -173,6 +263,16 @@ await step("select preset region", async () => {
   await pickRegion("Bay of Bengal");
 });
 
+await step("timeline reaches a step with instruments", async () => {
+  if (!(await seekObservations())) {
+    throw new Error("no timestep in this catalog has observations in view");
+  }
+  const t = await page.evaluate(() => document.body.innerText);
+  console.log(`
+      ${/\d+ of \d+ within \d+ days/.exec(t)?.[0] ?? "?"}`);
+  process.stdout.write(" ".repeat(40));
+});
+
 await step("screenshot: region selected", async () => {
   await shot("02-selected.png");
 });
@@ -204,25 +304,50 @@ await step("block canvas is drawing pixels", async () => {
 });
 
 await step("click a float -> matchup panel", async () => {
-  // The instruments are an InstancedMesh, so there is no DOM node to target.
-  // Probe a few points over the block until the profile panel opens.
-  const canvas = await page.locator("canvas").last().boundingBox();
-  const cx = canvas.x + canvas.width / 2;
-  const cy = canvas.y + canvas.height / 2;
-  const candidates = [];
-  for (let dx = -260; dx <= 260; dx += 26) {
-    for (let dy = -180; dy <= 180; dy += 26) candidates.push([cx + dx, cy + dy]);
-  }
-  for (const [x, y] of candidates) {
-    await page.mouse.click(x, y);
-    const opened = await page
-      .getByText(/profile$/i)
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (opened) return;
-  }
-  throw new Error(`no float hit after ${candidates.length} probes`);
+  const hit = await clickFloat();
+  console.log(`
+      block click -> ${hit.id}`);
+  process.stdout.write(" ".repeat(40));
+});
+
+await step("click a marker on the MAP opens a profile", async () => {
+  // This path had NO handler at all until someone tried it: the markers were
+  // drawn and coloured by model error and were completely inert. It was never
+  // caught because this suite only ever clicked floats after Dive.
+  await page.getByRole("button", { name: "Back to map" }).click();
+  await page.waitForTimeout(1500);
+  await seekObservations();
+  const hit = await page.evaluate(() => {
+    const m = window.__map;
+    const f = m.queryRenderedFeatures({ layers: ["obs-circles"] })[0];
+    if (!f) return null;
+    const p = m.project(f.geometry.coordinates);
+    return { x: Math.round(p.x), y: Math.round(p.y), id: f.properties.id };
+  });
+  if (!hit) throw new Error("no instrument markers rendered on the map");
+  await page.mouse.click(hit.x, hit.y);
+  await page.getByText(/profile$/i).first().waitFor({ timeout: 20000 });
+
+  // Selecting must also SAY which one: ring, tag and a zoom that only goes in.
+  const tagged = await page.evaluate(
+    (id) => document.body.innerText.replace(/\s+/g, " ").includes(id),
+    hit.id,
+  );
+  if (!tagged) throw new Error(`selection tag missing for ${hit.id}`);
+  console.log(`
+      map click -> ${hit.id}, tagged`);
+  process.stdout.write(" ".repeat(40));
+  await shot("14-map-click.png");
+});
+
+await step("re-enter the block for the remaining checks", async () => {
+  await pickRegion("Bay of Bengal");
+  await page.getByRole("button", { name: "Dive" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("drag to orbit"), {
+    timeout: 60000,
+  });
+  await page.waitForTimeout(2500);
+  await clickFloat();
 });
 
 await step("matchup statistics shown", async () => {
@@ -383,6 +508,7 @@ console.log("\nmobile (Pixel 7)");
 
 const mctx = await browser.newContext({ ...devices["Pixel 7"] });
 const mpage = await mctx.newPage();
+mpage.setDefaultTimeout(75_000);
 const mErrors = [];
 mpage.on("console", (m) => m.type() === "error" && mErrors.push(m.text()));
 mpage.on("pageerror", (e) => mErrors.push(`PAGEERROR: ${e.message}`));

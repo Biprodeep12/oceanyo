@@ -24,6 +24,38 @@ from .netcdf import open_dataset
 log = logging.getLogger(__name__)
 
 
+
+def snap_bbox_to_grid(box: BBox, lons: np.ndarray, lats: np.ndarray) -> BBox:
+    """Widen a bbox until it certainly contains at least one grid cell.
+
+    `.sel(slice(a, b))` returns an EMPTY array when no coordinate falls between
+    a and b, and a box smaller than one cell frequently does not. Everything
+    downstream then works on a zero-length axis: `lons[0]` raises IndexError,
+    `nanmean` over an empty slice is NaN, the quantizer divides by a zero range.
+    The result is a 500 from four separate endpoints.
+
+    This is not a hypothetical. Dragging a selection rectangle emits a request
+    on every mouse move, and the first few are a few pixels across -- far below
+    a 2 arc-minute bathymetry cell, or a 0.48 degree model cell. So the very
+    first thing a user does produces the degenerate case.
+
+    Asking for less than one cell is a reasonable thing to do; the honest answer
+    is the cell you are pointing at, not an error.
+    """
+    west, east = box.west, box.east
+    south, north = box.south, box.north
+    if lons.size > 1:
+        step = float(np.median(np.abs(np.diff(lons))))
+        if step > 0 and (east - west) < step:
+            mid = 0.5 * (west + east)
+            west, east = mid - step * 0.55, mid + step * 0.55
+    if lats.size > 1:
+        step = float(np.median(np.abs(np.diff(lats))))
+        if step > 0 and (north - south) < step:
+            mid = 0.5 * (south + north)
+            south, north = mid - step * 0.55, mid + step * 0.55
+    return BBox(west, south, east, north)
+
 @dataclass(frozen=True)
 class Axes:
     """Resolved coordinate variable names for one dataset."""
@@ -271,6 +303,8 @@ class CFDataset:
 
         # --- horizontal subset (slice bounds must follow axis direction) ---
         if bbox is not None:
+            # Never let a sub-gridscale request select nothing.
+            bbox = snap_bbox_to_grid(bbox, self.lons, self.lats)
             lon_asc = bool(self.lons[0] <= self.lons[-1])
             lat_asc = bool(self.lats[0] <= self.lats[-1])
             lon_sl = slice(bbox.west, bbox.east) if lon_asc else slice(bbox.east, bbox.west)

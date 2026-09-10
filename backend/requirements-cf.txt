@@ -1,0 +1,18 @@
+# The CF compliance checker, kept OUT of requirements.txt on purpose.
+#
+# cfchecker -> cfunits -> UNIDATA UDUNITS-2, a native library with no Windows
+# wheel outside conda. Putting it in the main requirements would make
+# `pip install -r backend/requirements.txt` fail on the development platform,
+# for a tool that is not needed to RUN the app -- only to audit its output.
+#
+# The Docker image installs libudunits2 and then this file, so the CF claim is
+# verifiable in the environment that ships:
+#
+#   docker compose run --rm api \
+#     python -m cfchecker.cfchecks -v 1.8 /app/data/real/hycom_indian_ocean.nc
+#
+# On Linux or macOS a local install works too, given the native library:
+#
+#   apt-get install libudunits2-0        # or: brew install udunits
+#   pip install -r backend/requirements-cf.txt
+cfchecker>=4.1

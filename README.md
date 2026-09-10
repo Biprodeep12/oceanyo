@@ -559,6 +559,27 @@ the ASCII/CSV ingestion requirement).
 
 ## Verification
 
+### The CF claim, checkable rather than asserted
+
+```bash
+docker compose run --rm api   python -m cfchecker.cfchecks -v 1.8 /app/data/real/hycom_indian_ocean.nc
+```
+
+`cfchecker` depends on `cfunits`, which needs UNIDATA's native **UDUNITS-2**.
+There is no Windows wheel for it outside conda, so it is deliberately **not** in
+`backend/requirements.txt` -- putting it there would break `pip install -r` on
+the development platform for a tool that audits output rather than running the
+app. It lives in `backend/requirements-cf.txt`, and the Docker image installs
+`libudunits2-0` alongside it so the check runs in the environment that ships.
+
+Stating that plainly matters more than a pasted transcript: the compliance
+claim is worth exactly as much as the reader's ability to re-run it, and
+"we ran it once on a machine you do not have" is not that. What *does* run
+everywhere is `npm run verify`, which asserts the same properties the checker
+looks at -- `positive="down"`, monotonic ascending axes, resolvable
+`standard_name`s, parseable time -- against whichever catalog is configured.
+
+
 ```bash
 npm run verify           # data contract: 40 assertions
 npm run fetch:real       # download real Argo + glider data and parse it
@@ -643,6 +664,14 @@ built:
   inset is drawn from the same coastline the map uses -- traced from this
   project's own bathymetry -- so it cannot stall on a third-party tile server
   and cannot disagree with the map beside it.
+- **Incremental 3D-texture upload** (5.1 item 5). A full-resolution volume is
+  4 MB, and `texImage3D` hands the driver all of it in one call that blocks
+  until it lands -- during the extrude, the one moment where a dropped frame is
+  the whole point of the feature. The texture is now allocated empty and filled
+  one z-slab per frame. The half-filled state needs no masking: raw 0 is
+  reserved for fill, so the shader already discards un-uploaded voxels as land
+  and the water column grows downward from the surface, which reads as loading
+  rather than as corruption.
 - **Timeline ring buffer** (5.1 item 7). Neighbouring timesteps are prefetched
   in the direction of travel, one at a time and only after the current step has
   rendered, and the scrubber shows what is buffered. Firing them in parallel

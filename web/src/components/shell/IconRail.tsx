@@ -81,7 +81,15 @@ export default function IconRail() {
   useEffect(() => setCaps(probeGpu()), []);
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 bottom-3 z-30 flex items-start justify-end gap-2">
+    // z-50: ABOVE the profile panel, which shares this corner.
+    //
+    // The rail and its popovers both sit at the top right, and the profile
+    // panel opens into the same space. At equal z the later element in the DOM
+    // wins, so opening a profile silently made Regions, Settings and About
+    // unclickable -- the panel was covering the popover they open. A transient
+    // control has to sit above the content panel it acts on, not beside it and
+    // hope.
+    <div className="pointer-events-none absolute right-3 top-3 bottom-3 z-50 flex items-start justify-end gap-2">
       {open && (
         <div className="pointer-events-auto mt-0">
           {open === "regions" && (

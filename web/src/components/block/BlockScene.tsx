@@ -15,7 +15,7 @@ import {
   toBlockSpaceAt,
   toWorld,
 } from "@/lib/geo/blockSpace";
-import { getCached, loadVolume, volumeKey } from "@/lib/loading/volumeStore";
+import { getCached, loadVolume, pumpUploads, volumeKey } from "@/lib/loading/volumeStore";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
@@ -357,6 +357,41 @@ function Instruments({
     mesh.computeBoundingSphere();
   }, [inBox, errorById, bbox, depthRange, frame, depths, selectedId]);
 
+  // Test hook: where the instruments are on screen, right now.
+  //
+  // An InstancedMesh has no DOM node, so the browser test used to hunt for one
+  // by clicking a grid across the block. That is slow, and worse, it is
+  // FLATTERING: with thirty scattered floats something is always under the
+  // cursor, which is exactly how a dead raycast passed the step for weeks. A
+  // deterministic position turns "did any click land" into "does clicking the
+  // instrument work". Same idea as the `__map` handle the map already exposes.
+  const { camera, size } = useThree();
+  useEffect(() => {
+    const w = window as unknown as { __floatPoints?: () => unknown };
+    w.__floatPoints = () => {
+      const mesh = meshRef.current;
+      if (!mesh) return [];
+      const m = new THREE.Matrix4();
+      const v = new THREE.Vector3();
+      // World matrices are refreshed during render; a hook called from outside
+      // the loop can otherwise project against a stale transform.
+      mesh.updateWorldMatrix(true, false);
+      camera.updateMatrixWorld();
+      return inBox.map((f, i) => {
+        mesh.getMatrixAt(i, m);
+        v.setFromMatrixPosition(m).applyMatrix4(mesh.matrixWorld).project(camera);
+        return {
+          id: f.properties.id,
+          x: Math.round((v.x * 0.5 + 0.5) * size.width),
+          y: Math.round((-v.y * 0.5 + 0.5) * size.height),
+        };
+      });
+    };
+    return () => {
+      delete w.__floatPoints;
+    };
+  }, [inBox, camera, size]);
+
   const onClick = async (ev: { instanceId?: number; stopPropagation: () => void }) => {
     ev.stopPropagation();
     const i = ev.instanceId;
@@ -676,8 +711,10 @@ export default function BlockScene() {
     return () => releaseViewport(handlers);
   }, [camera]);
 
-  // Detect camera motion to drive adaptive ray-marching.
-  useFrame(() => {
+  // Detect camera motion to drive adaptive ray-marching, and push the next
+  // slab of any volume still streaming onto the GPU (spec 5.1 item 5).
+  useFrame(({ gl }) => {
+    pumpUploads(gl);
     if (!camera.position.equals(lastCam.current)) {
       lastCam.current.copy(camera.position);
       if (!moving) setMoving(true);
