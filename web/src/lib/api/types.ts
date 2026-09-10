@@ -37,6 +37,8 @@ export interface HealthResponse {
   variables: string[];
   platforms: string[];
   standards: Record<string, boolean>;
+  /** Whether the query layer can reach a model. False is normal. */
+  nlq?: boolean;
   /** Variables this catalog can produce a climatology anomaly for. */
   climatology: string[];
 }
@@ -392,4 +394,30 @@ export interface EventsResponse {
   events: ExceedanceEvent[];
   method: string;
   notHobday: string;
+}
+
+/**
+ * POST /api/query -- a phrase interpreted as tool calls.
+ *
+ * `tools` is always validated server-side against what this catalogue can
+ * actually do, so an empty list is a normal answer and never an error. The
+ * model emits calls and nothing else: no value in this response is a
+ * measurement, and none is ever displayed as one.
+ */
+export interface QueryResponse {
+  tools: { name: string; args: Record<string, unknown> }[];
+  source: "model" | "unavailable" | "error";
+  reason: string;
+  model: string;
+  rejected?: number;
+  latencyMs: number;
+  config?: { enabled: boolean; hasKey: boolean; baseUrl: string; model: string };
+}
+
+export interface QueryStatus {
+  available: boolean;
+  baseUrl: string;
+  model: string;
+  enabled: boolean;
+  note: string;
 }

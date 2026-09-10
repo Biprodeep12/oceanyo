@@ -632,10 +632,25 @@ gate for a real-data swap.
 ### Feature status against spec section 5
 
 All 21 MVP items are built, both "stretch within MVP" items are built, and
-thirteen of the fourteen Level 2 features are built. The browser smoke tests
-exercise them: `web/scripts/smoke.mjs` walks the demo script, and
-`web/scripts/smoke-level2.mjs` checks the Level 2 surfaces in about a minute
-(18 checks) so that verifying a legend does not mean a twenty-minute pass.
+thirteen of the fourteen Level 2 features are built.
+
+Three browser passes cover them, and they answer different questions:
+
+| | asks |
+|---|---|
+| `npm run smoke` | does every feature work? |
+| `npm run smoke:level2` | do the Level 2 surfaces work? (~1 min, 20 checks) |
+| `npm run rehearse` | does the section 9 demo *hold together*? |
+
+The third is the one that is easy to skip and shouldn't be. The first two are
+free to reload, re-enter the block and reopen panels to isolate a feature; an
+evaluator watching the demo gets none of that. `rehearse.mjs` walks the section
+9 narrative in order, in one continuous session, with no reload, and reports
+**time per beat** against the targets section 5.1 commits to rather than
+pass/fail. It prints its own caveat: headless Chromium renders through
+SwiftShader on the CPU, so its frame rates are a floor rather than a
+measurement of the demo machine, while fetch, decode and API timings are
+hardware-independent and can be read at face value.
 
 The MVP items:
 
@@ -797,8 +812,53 @@ answered by `/api/instruments` against the observation index, so a ranking is
 computed rather than generated. Wiring a model in later means emitting the same
 `Tool` objects; nothing downstream changes.
 
-**Level 3** is not built, and the spec says it should not be: it is listed as
-future work that "must not consume MVP hours".
+### Level 3: the natural-language query layer
+
+One Level 3 item is built, because 5.2 designs it as a schema rather than as a
+chatbot and the schema was already there.
+
+**A model is asked only about phrases the lookup table cannot parse.** That
+ordering is the whole design. Everything rehearsed for the demo resolves
+offline, for free, in microseconds, and identically every time; the model
+handles the phrasing nobody anticipated, which is exactly where 5.2 argues
+natural language earns its place. Pull the network out mid-pitch and the
+feature still works.
+
+Four guarantees, enforced in `backend/app/api/services/nlq.py` rather than
+promised:
+
+- **The model never touches the data.** It emits tool calls and nothing else.
+  `query_floats` is answered by `/api/instruments` against the observation
+  index, so a ranking is *measured*. No number a model produces is ever shown.
+- **It can only say things the UI can already do.** Every call is validated
+  against the live catalogue before it leaves the server — unknown tool,
+  unknown variable, a depth outside the dataset, a timestamp the record does
+  not contain: rejected, and the rejection count is reported. The blast radius
+  of a hallucination is a discarded request.
+- **Nothing runs silently.** The resolved call is printed above the list, rows
+  a model proposed are marked `Model` in a different colour from locally
+  matched ones, and a call executes only when the user chooses it.
+- **It is never required.** No key, no network, a dead free tier, a renamed
+  model — all degrade to the lookup table, and the response says which.
+
+It adds no dependency: one POST with a timeout through `urllib.request`.
+Adding an HTTP client so an *optional* feature can call an *optional* service
+is how a stack acquires something that fails to install the night before.
+
+**To enable it:** set `OCEANUPS_NLQ_API_KEY` (see `.env.example`) and restart
+the API. `/api/query/status` and `/api/health` both report whether a model is
+reachable. Any OpenAI-compatible endpoint works, so pointing
+`OCEANUPS_NLQ_BASE_URL` at a local Ollama or vLLM server needs no key at all —
+the self-hosted deployment 5.2 says production would require, since a ministry
+would not route operational queries through a third-party API.
+
+**Free-tier caveats, stated rather than discovered:** free OpenRouter models
+generally log prompts and rate-limit aggressively. Only the catalogue's
+vocabulary is sent — variable names, region ids, timestep strings, float
+numbers — never measurements, and nothing about who is running it.
+
+The rest of **Level 3** is not built, and the spec says it should not be: it is
+listed as future work that "must not consume MVP hours".
 
 Reduced fidelity, stated plainly: the extrude is a camera and opacity crossfade
 rather than the pixel-registered map-to-block hand-off; the current layer's

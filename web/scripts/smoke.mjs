@@ -474,6 +474,36 @@ await step("glider tracks in the water column", async () => {
   });
   await page.waitForTimeout(5000);
   if (!requests.some((u) => u.includes("/api/profile/glider"))) {
+    // Before calling this a failure, check whether any glider is
+    // CONTEMPORANEOUS with any model step. The Indian Ocean catalogue's only
+    // deployment ran in September 2025 and its model ends in June 2024, so the
+    // time filter correctly draws nothing -- and reporting that as "gliders are
+    // broken" sends the next person to read GliderTracks.tsx for an afternoon.
+    const overlap = await page.evaluate(async () => {
+      const [obs, meta] = await Promise.all([
+        fetch("/api/observations?limit=5000&platform=glider").then((r) => r.json()),
+        fetch("/api/metadata/temperature").then((r) => r.json()),
+      ]);
+      const times = (obs.features ?? []).map((f) => Date.parse(f.properties.time));
+      const steps = (meta.time ?? []).map((t) => Date.parse(t));
+      if (!times.length || !steps.length) return null;
+      const near = times.some((t) => steps.some((s) => Math.abs(s - t) < 60 * 864e5));
+      return {
+        near,
+        obs: [new Date(Math.min(...times)), new Date(Math.max(...times))],
+        model: [new Date(Math.min(...steps)), new Date(Math.max(...steps))],
+      };
+    });
+    if (overlap && !overlap.near) {
+      console.log(
+        `\n      gliders are outside the model record ` +
+          `(${overlap.obs[0].toISOString().slice(0, 7)}..${overlap.obs[1].toISOString().slice(0, 7)}` +
+          ` vs ${overlap.model[0].toISOString().slice(0, 7)}..${overlap.model[1].toISOString().slice(0, 7)});` +
+          ` nothing to draw -- skipped`,
+      );
+      process.stdout.write(" ".repeat(40));
+      return;
+    }
     throw new Error("no glider trajectory fetched");
   }
   await shot("11-gliders.png");
@@ -509,7 +539,15 @@ await step("cross-section curtain", async () => {
   for (let dx = 60; dx <= 260; dx += 40) {
     for (let dy = -120; dy <= 40; dy += 35) second.push([dx, dy]);
   }
-  if (!(await probe("curtain sampled at the model levels", second))) {
+  // Two acceptable strings, because the transect became a polyline: with two
+  // points down the panel now invites more of them rather than declaring the
+  // section finished. Asserting on prose is brittle -- but the alternative
+  // here is asserting on the store, which would stop testing that the USER can
+  // see the section was placed.
+  if (
+    !(await probe("keep clicking to bend the transect", second)) &&
+    !(await probe("curtain sampled at the model levels", second))
+  ) {
     throw new Error("second section point never registered");
   }
 

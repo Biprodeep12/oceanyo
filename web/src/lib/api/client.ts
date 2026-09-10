@@ -18,6 +18,8 @@ import type {
   ObservationProfile,
   ParserCapabilities,
   ProvenanceResponse,
+  QueryResponse,
+  QueryStatus,
   RegionPreset,
   SectionResponse,
   SliceResponse,
@@ -107,6 +109,25 @@ export const api = {
     if (opts.threshold) p.set("threshold", String(opts.threshold));
     return getJSON<EventsResponse>(`/api/events?${p}`, signal);
   },
+
+  /**
+   * Interpret a phrase as tool calls (spec 5.2).
+   *
+   * POST, not GET: the phrase is a body rather than a URL, so it never lands
+   * in a browser history entry, a proxy log or a shared permalink. A search
+   * box that quietly writes what people typed into the address bar is a
+   * different product than the one we are shipping.
+   */
+  query: (phrase: string, signal?: AbortSignal) =>
+    fetch("/api/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: phrase }),
+      signal,
+    }).then((r) => r.json() as Promise<QueryResponse>),
+
+  queryStatus: (signal?: AbortSignal) =>
+    getJSON<QueryStatus>("/api/query/status", signal),
 
   provenance: (signal?: AbortSignal) =>
     getJSON<ProvenanceResponse>("/api/provenance", signal),

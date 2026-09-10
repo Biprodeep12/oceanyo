@@ -13,10 +13,11 @@
 // This file is that fallback, and it is the DEFAULT rather than the backstop.
 // A free-tier model is a third-party dependency, a rate limit, and a prompt log
 // containing a ministry's queries, in exchange for parsing "bay of bengal" --
-// which a lookup table does correctly, offline, in microseconds. When a model
-// is wired in later it emits exactly these Tool objects and everything
-// downstream is unchanged; `resolve` becomes the fallback path it was
-// specified as.
+// which a lookup table does correctly, offline, in microseconds. A model IS now
+// wired in (backend/app/api/services/nlq.py) and emits exactly these Tool
+// objects, so everything downstream is unchanged -- but it is asked only about
+// what `resolve` below could not match, which keeps every rehearsed phrase
+// deterministic and every demo identical.
 //
 // Two of the design rules in 5.2 are enforced here rather than in the UI:
 // resolution is reported (every result carries the `label` shown to the user
@@ -51,7 +52,17 @@ export interface Resolution {
   /** Ranking hint; higher wins when several rules fire. */
   score: number;
   /** Category, for grouping in the palette. */
-  group: "Region" | "Variable" | "Depth" | "Time" | "Layer" | "Instruments" | "Action";
+  group:
+    | "Region"
+    | "Variable"
+    | "Depth"
+    | "Time"
+    | "Layer"
+    | "Instruments"
+    | "Action"
+    // Proposed by a model rather than matched locally. Carried as a group
+    // rather than a boolean so the palette cannot render it without saying so.
+    | "Model";
 }
 
 export interface ResolveContext {

@@ -180,8 +180,10 @@ const main = async () => {
   check("dive reaches block mode with a quad selection", inBlock);
 
   if (inBlock) {
+    // __floatPoints is a function; `.length` on it is the arity, so the old
+    // `>= 0` was true before the scene had drawn anything at all.
     const drew = await waitFor(
-      async () => store(page, () => (window.__floatPoints?.length ?? 0) >= 0),
+      async () => store(page, () => (window.__floatPoints?.() ?? []).length > 0),
       30000,
     );
     const frameOk = await store(page, () => {

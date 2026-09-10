@@ -27,6 +27,7 @@ from .routers import (
     instruments,
     matchup,
     observations,
+    query as query_router,
     tiles,
     wcs,
 )
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(instruments.router)
     app.include_router(matchup.router)
     app.include_router(assessment.router)
+    app.include_router(query_router.router)
     app.include_router(tiles.router)
     # WCS is ours, not xpublish's: MVP item 21 names WMS/WCS together, and no
     # xpublish plugin serves coverages.

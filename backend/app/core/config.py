@@ -25,6 +25,32 @@ class Settings(BaseSettings):
     max_volume_bytes: int = 8 * 1024 * 1024
     cache_max_bytes: int = 512 * 1024 * 1024
 
+    # --- natural-language query layer (spec 5.2) ---
+    #
+    # Optional in the strongest sense: with no key the palette still resolves
+    # phrases against its own lookup table, which is the deterministic fallback
+    # 5.2 requires. Nothing here can stop the platform booting.
+    #
+    # Any OpenAI-compatible endpoint works, which is what makes the provider
+    # swappable rather than merely claimed: OpenRouter today, and an Ollama or
+    # vLLM server at http://127.0.0.1:11434/v1 for the self-hosted deployment
+    # 5.2 says production would need. A local base URL needs no key.
+    nlq_enabled: bool = True
+    nlq_base_url: str = "https://openrouter.ai/api/v1"
+    # Free-tier model ids on OpenRouter are retired and renamed regularly. When
+    # this one goes, /api/query reports the HTTP error and the model name, so
+    # the fix is one environment variable rather than a debugging session.
+    nlq_model: str = "nvidia/nemotron-3.5-lightning:free"
+    nlq_api_key: str = ""
+    # A TOTAL deadline, enforced in nlq.py -- not urlopen's timeout, which is
+    # per socket operation and lets a slow trickle of bytes run for minutes.
+    #
+    # 25 s because a free tier's first call queues: measured 33 s cold and
+    # 2.7-7 s warm on nvidia/nemotron-3.5-lightning:free. Anything tighter
+    # would make the first query of a demo fail every time, which is the one
+    # query most likely to be watched.
+    nlq_timeout: float = 25.0
+
     def resolve(self, p: str | Path) -> Path:
         p = Path(p)
         return p if p.is_absolute() else (REPO_ROOT / p)

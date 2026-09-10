@@ -137,6 +137,10 @@ class HealthResponse(BaseModel):
     variables: list[str]
     platforms: list[str]
     standards: dict[str, bool] = Field(default_factory=dict)
+    #: Whether the natural-language layer can reach a model. False is normal:
+    #: the palette resolves phrases locally either way, so this only tells the
+    #: UI whether to offer the model for what the lookup table could not parse.
+    nlq: bool = False
     #: canonical variables a climatology anomaly can be computed for; empty
     #: when the catalog carries no climatology at all.
     climatology: list[str] = Field(default_factory=list)

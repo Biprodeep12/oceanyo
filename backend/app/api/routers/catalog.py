@@ -12,6 +12,7 @@ from ...core.models import GriddedField, HealthResponse, ParserCapabilities, Var
 from ..datastore import DataStore, get_store
 from ..obs.registry import REGISTRY
 from ..services import raster
+from ..services import nlq
 from ..services.anomaly import available_variables
 
 router = APIRouter(prefix="/api", tags=["catalog"])
@@ -30,6 +31,7 @@ def health(store: DataStore = Depends(get_store)) -> HealthResponse:
         variables=store.all_variables(),
         platforms=store.platforms(),
         standards=dict(STANDARDS),
+        nlq=nlq.available(),
         climatology=(
             available_variables(store.model, store.climatology) if store.model else []
         ),

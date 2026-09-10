@@ -9,8 +9,10 @@
 // -- section 5.2's "show the resolved parameters ... never let it act
 // silently", enforced as a component rather than as a promise.
 //
-// No model is called. See the header of lib/nlq/tools.ts for why the
-// deterministic resolver is the default path rather than the fallback.
+// A model is called only for phrases the lookup table cannot parse, and only
+// when one is configured. See lib/nlq/tools.ts for why the deterministic
+// resolver is the default path rather than the backstop, and the tool calls a
+// model returns are validated server-side before they ever reach this list.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,6 +20,7 @@ import { IconSearch } from "@/components/ui/icons";
 import { api } from "@/lib/api/client";
 import { openProfile } from "@/lib/api/openProfile";
 import { describe, resolve, type Resolution, type Tool } from "@/lib/nlq/tools";
+import type { QueryResponse } from "@/lib/api/types";
 import { modeActions } from "@/lib/viewport";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -55,12 +58,20 @@ export default function CommandPalette({
   const [rows, setRows] = useState<InstrumentRow[] | null>(null);
   const [ranking, setRanking] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  // What the model proposed, if it was asked. Kept separate from the local
+  // results so the two are never confused in the list or in the mind.
+  const [asked, setAsked] = useState<QueryResponse | null>(null);
+  const [asking, setAsking] = useState(false);
+  // Seconds spent waiting. A free tier queues its first call -- measured 33 s
+  // cold -- and a spinner with no number is indistinguishable from a hang.
+  const [waited, setWaited] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const presets = useSessionStore((s) => s.presets);
   const variables = useSessionStore((s) => s.variables);
   const times = useSessionStore((s) => s.times);
   const observations = useSessionStore((s) => s.observations);
+  const nlqReady = useSessionStore((s) => s.health?.nlq ?? false);
 
   // Instrument names, not profile ids: a user searching "1902669" means the
   // float, and its ninety cycles as ninety rows would bury everything else.
@@ -75,12 +86,69 @@ export default function CommandPalette({
     [q, presets, variables, times, instrumentIds],
   );
 
-  useEffect(() => setCursor(0), [q]);
+  // The model is asked ONLY when the lookup table found nothing.
+  //
+  // Not a fallback bolted on for when the network fails -- the other way
+  // round. A phrase the table matches is resolved offline, for free, in
+  // microseconds, and identically every time; sending it to a model as well
+  // would be slower, less reliable, and would put a ministry's queries through
+  // a third-party endpoint for no gain. What the model adds is the phrasing
+  // the table cannot anticipate, which is exactly where spec 5.2 argues
+  // natural language earns its place.
+  useEffect(() => {
+    setAsking(false);
+    if (!open || !nlqReady) return;
+    const phrase = q.trim();
+    // Short fragments are someone still typing, not a question.
+    if (results.length || phrase.length < 8) return;
+    const ac = new AbortController();
+    // Long enough that typing a sentence is one request rather than thirty.
+    const t = setTimeout(() => {
+      setAsking(true);
+      setWaited(0);
+      api
+        .query(phrase, ac.signal)
+        .then(setAsked)
+        .catch((e) => {
+          if ((e as Error).name !== "AbortError") console.warn("query:", e);
+        })
+        .finally(() => setAsking(false));
+    }, 650);
+    return () => {
+      clearTimeout(t);
+      ac.abort();
+    };
+  }, [q, open, nlqReady, results.length]);
+
+  // One list, with the model's suggestions after the local ones. Ordering is
+  // the claim: what the platform is certain of comes first.
+  const modelResults: Resolution[] = useMemo(
+    () =>
+      (asked?.tools ?? []).map((t) => ({
+        tool: t as unknown as Tool,
+        label: describe(t as unknown as Tool),
+        score: 0,
+        group: "Model" as Resolution["group"],
+      })),
+    [asked],
+  );
+
+  useEffect(() => {
+    setCursor(0);
+    setAsked(null);
+  }, [q]);
+
+  useEffect(() => {
+    if (!asking) return;
+    const id = window.setInterval(() => setWaited((w) => w + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [asking]);
   useEffect(() => {
     if (open) {
       setQ("");
       setRows(null);
       setRanking("");
+      setAsked(null);
       // rAF, not a bare focus(): the element is being revealed in the same
       // commit and is not yet focusable when the effect runs.
       requestAnimationFrame(() => inputRef.current?.focus());
@@ -169,7 +237,7 @@ export default function CommandPalette({
   );
 
   // --- keyboard ---
-  const list: Resolution[] = results;
+  const list: Resolution[] = [...results, ...modelResults];
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -244,18 +312,53 @@ export default function CommandPalette({
                 ))}
               </div>
               <div className="mt-3 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
-                Resolved locally against the catalogue, with no model call: the
-                answer is the same offline, and the queries never leave this
-                machine.
+                {nlqReady ? (
+                  <>
+                    Resolved locally against the catalogue first. Only a phrase
+                    the lookup table cannot parse is sent to a model, and it can
+                    emit tool calls and nothing else &mdash; every result you
+                    see is computed by this API.
+                  </>
+                ) : (
+                  <>
+                    Resolved locally against the catalogue, with no model call:
+                    the answer is the same offline, and the queries never leave
+                    this machine.
+                  </>
+                )}
               </div>
             </div>
           )}
 
-          {q && !list.length && (
-            <div className="px-4 py-4 text-[11.5px] text-[color:var(--ze-text-dim)]">
+          {q && !list.length && !asking && (
+            <div className="px-4 py-4 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
               Nothing matched. This resolves a fixed vocabulary &mdash; regions,
               variables, depths, dates, assessment layers, instrument ids &mdash;
               rather than guessing.
+              {asked?.source === "model" && asked.tools.length === 0 && (
+                <div className="mt-1.5 text-[color:var(--ze-text-faint)]">
+                  {asked.model} was asked and proposed nothing this catalogue
+                  can do
+                  {asked.rejected ? `; ${asked.rejected} call(s) were rejected` : ""}.
+                </div>
+              )}
+              {asked?.source === "error" && (
+                <div className="mt-1.5 text-[color:var(--ze-warn)]">
+                  {asked.model}: {asked.reason}
+                </div>
+              )}
+            </div>
+          )}
+
+          {asking && (
+            <div className="px-4 py-3 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
+              asking the model to name a tool&hellip; {waited}s
+              {waited > 8 && (
+                <div className="mt-1 text-[10.5px] text-[color:var(--ze-text-faint)]">
+                  the first call of a session queues on a free tier; everything
+                  the lookup table can answer is instant
+                </div>
+              )}
             </div>
           )}
 
@@ -268,11 +371,29 @@ export default function CommandPalette({
               onClick={() => void run(r.tool)}
             >
               <span className="truncate text-left">{r.label}</span>
-              <span className="ml-2 shrink-0 text-[10px] uppercase tracking-wide text-[color:var(--ze-text-faint)]">
+              <span
+                className="ml-2 shrink-0 text-[10px] uppercase tracking-wide"
+                style={{
+                  // A row a model proposed is marked as one. Presenting an
+                  // interpretation and a lookup identically would be the one
+                  // thing 5.2 asks this feature not to do.
+                  color:
+                    r.group === "Model"
+                      ? "var(--ze-accent, #4fd1c5)"
+                      : "var(--ze-text-faint)",
+                }}
+              >
                 {r.group}
               </span>
             </button>
           ))}
+
+          {asked?.source === "model" && asked.tools.length > 0 && (
+            <div className="px-4 pb-2 pt-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+              interpreted by {asked.model} in {asked.latencyMs} ms &middot; the
+              call runs only when you choose it
+            </div>
+          )}
 
           {busy && (
             <div className="px-4 py-3 text-[11.5px] text-[color:var(--ze-text-dim)]">
