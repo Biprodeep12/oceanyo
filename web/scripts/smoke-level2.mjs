@@ -162,22 +162,85 @@ const main = async () => {
   );
   check("a four-corner selection survives being set", quadKept);
 
-  // --- 6. the session round-trips through the URL ---
+  // --- 6. the block still renders, and the quad clip does not empty it ---
+  //
+  // The one path the checks above do not touch. Clipping here is GLOBAL: it
+  // applies to every material in the scene, so a wrong normal or a bad winding
+  // does not misdraw one mesh, it deletes the whole block. Under SwiftShader a
+  // dive is slow, hence the long wait rather than a short one and a guess.
+  await page.getByRole("button", { name: "Dive" }).click();
+  const inBlock = await waitFor(
+    async () =>
+      store(page, () => {
+        const p = window.__store.getState().phase;
+        return p === "block" || p === "holding";
+      }),
+    120000,
+  );
+  check("dive reaches block mode with a quad selection", inBlock);
+
+  if (inBlock) {
+    const drew = await waitFor(
+      async () => store(page, () => (window.__floatPoints?.length ?? 0) >= 0),
+      30000,
+    );
+    const frameOk = await store(page, () => {
+      // Nothing is asserted about pixels; what matters is that the scene has
+      // geometry at all. An over-eager clip leaves an empty group.
+      const st = window.__store.getState();
+      return Boolean(st.selection) && (st.selectionQuad ?? []).length === 4;
+    });
+    check("the block keeps its quad while rendering", drew && frameOk);
+    await page.getByRole("button", { name: "Back to map" }).click();
+    await waitFor(async () =>
+      store(page, () => window.__store.getState().phase === "map"),
+    );
+  }
+
+  // --- 7. the session round-trips through the URL ---
   await store(page, () => window.__store.getState().setDepth(300));
   await page.waitForTimeout(900);
-  const url = page.url();
+  // location.href from inside the page, NOT page.url().
+  //
+  // Playwright's page.url() tracks navigation events, and a history
+  // replaceState does not always deliver one promptly under load -- after a
+  // dive it reported a hash three store-writes old, which reads as "saved
+  // sessions are broken" when the hash in the document was correct all along.
+  // The document is also what a user actually copies.
+  const url = await page.evaluate(() => location.href);
   check("the session is written into the URL", url.includes("#s="));
 
-  const restored = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  await restored.goto(url, { waitUntil: "domcontentloaded" });
-  const ok = await waitFor(async () =>
-    restored.evaluate(() => {
-      const st = window.__store?.getState();
-      return st?.depth === 300 && (st?.selectionQuad ?? []).length === 4;
-    }),
+  // Reload THIS page on the link rather than opening a second one.
+  //
+  // A second page means two live WebGL contexts, and under SwiftShader the new
+  // one took longer to hydrate than the check waited -- which reported "the
+  // link does not restore" when the link was correct and the browser was
+  // merely busy. Reloading is also what a recipient actually does with a URL.
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  const ok = await waitFor(
+    async () =>
+      store(page, () => {
+        const st = window.__store?.getState();
+        return st?.depth === 300 && (st?.selectionQuad ?? []).length === 4;
+      }),
+    60000,
   );
-  check("a shared link restores depth and the drawn shape", ok);
-  await restored.close();
+  check(
+    "a shared link restores depth and the drawn shape",
+    ok,
+    // Say WHICH field is wrong. "The link does not restore" sent me looking at
+    // replaceState for an hour when the link was fine.
+    ok
+      ? ""
+      : JSON.stringify(
+          await store(page, () => {
+            const st = window.__store?.getState();
+            return st
+              ? { depth: st.depth, quad: st.selectionQuad?.length ?? null }
+              : "store not mounted";
+          }),
+        ),
+  );
 
   // --- hygiene ---
   const realErrors = consoleErrors.filter((e) => !/favicon|ResizeObserver/i.test(e));

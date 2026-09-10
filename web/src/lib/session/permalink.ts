@@ -141,12 +141,21 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 
 /** Mirror the store into the hash, coalesced. Returns an unsubscribe. */
 export function startPermalinkSync(): () => void {
+  let warned = false;
   const write = () => {
     timer = null;
     try {
       history.replaceState(null, "", `#s=${encode(snapshot())}`);
-    } catch {
-      /* a sandboxed frame may refuse replaceState; the app is unaffected */
+    } catch (e) {
+      // A sandboxed frame refuses replaceState, and Chrome throttles it after
+      // enough calls in a short window. The app is unaffected either way, so
+      // this must not throw -- but swallowing it entirely means saved sessions
+      // stop working and nothing anywhere says so. Once is enough; this runs
+      // on a debounce and would otherwise fill the console.
+      if (!warned) {
+        warned = true;
+        console.warn("session links unavailable:", e);
+      }
     }
   };
   const unsub = useSessionStore.subscribe(() => {
