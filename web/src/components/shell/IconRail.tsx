@@ -419,7 +419,7 @@ export default function IconRail() {
                   {events.events.map((e) => (
                     <button
                       key={`${e.kind}-${e.start}`}
-                      className="ze-row w-full flex-col !items-start gap-0.5 py-2"
+                      className="ze-row ze-row-stack ze-row-fill"
                       title="Jump to the first step and play the event"
                       onClick={() => {
                         setTimeIndex(e.startIndex);
@@ -444,7 +444,9 @@ export default function IconRail() {
                           {e.steps} step{e.steps === 1 ? "" : "s"}
                         </span>
                       </span>
-                      <span className="text-[10.5px] text-[color:var(--ze-text-dim)]">
+                      {/* Full width, so a long description wraps inside the row
+                          instead of pushing the popover sideways. */}
+                      <span className="w-full text-left text-[10.5px] leading-snug text-[color:var(--ze-text-dim)]">
                         {e.start.slice(0, 7)} to {e.end.slice(0, 7)} &middot; peak{" "}
                         {e.peakAnomaly > 0 ? "+" : ""}
                         {e.peakAnomaly.toFixed(2)} {events.units} over{" "}

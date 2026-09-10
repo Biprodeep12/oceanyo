@@ -330,7 +330,7 @@ export default function CommandPalette({
           {list.map((r, i) => (
             <button
               key={`${r.tool.name}-${i}`}
-              className="ze-row w-full justify-between"
+              className="ze-row ze-row-fill justify-between"
               data-active={i === cursor ? "true" : "false"}
               onMouseEnter={() => setCursor(i)}
               onClick={() => void run(r.tool)}
@@ -380,7 +380,7 @@ export default function CommandPalette({
               {rows.map((r) => (
                 <button
                   key={r.instrument}
-                  className="ze-row w-full justify-between !px-0"
+                  className="ze-row ze-row-fill justify-between !px-0"
                   onClick={() => void openProfile(r.platform, r.lastProfileId).then(onClose)}
                 >
                   <span className="truncate text-left font-mono text-[11px]">

@@ -736,3 +736,28 @@ body {
 :root[data-theme="light"] {
   --ze-panel-shadow: 0 14px 40px rgba(20, 40, 60, 0.18);
 }
+
+/* A list row that carries more than one line.
+   .ze-row is 38px tall by design -- it is a menu row, and a uniform height is
+   what makes a menu scan. Reusing it for a two-line entry (the Events list)
+   pushed the second line straight through the row below it, because a fixed
+   height does not grow. This is the same row, told it may be as tall as its
+   content. */
+.ze-row-stack {
+  height: auto;
+  min-height: 38px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-top: 7px;
+  padding-bottom: 8px;
+}
+
+/* .ze-row carries `margin: 0 6px`, so `w-full` on top of it is 100% of the
+   parent PLUS 12px -- which is where the horizontal scrollbar in the Events
+   popover came from. In a flex column a row stretches on its own; this is for
+   the places that need it stated. */
+.ze-row-fill {
+  width: auto;
+  align-self: stretch;
+}
