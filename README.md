@@ -124,6 +124,48 @@ development machine, so treat the compose file as unverified.*
 
 ---
 
+## Running the demo
+
+`npm run rehearse` walks the section 9 narrative in order, in one session, with
+no reload, and reports time per beat. The last run:
+
+```
+   483 ms  open the map
+  2301 ms  basemap and field tiles painted
+   396 ms  pick a variable, a region and a time -- Bay of Bengal, 2023-10-15, 3 instruments
+  1546 ms  WOW 1: press Dive -- left map mode in 3 ms
+     2 ms  water column resolves -- 0.0 s from pressing Dive
+  5743 ms  orbit the block -- 18 fps (CPU renderer; a floor, not the demo machine)
+  1026 ms  scrub the depth slider through the thermocline
+  6166 ms  WOW 3: play the timeline -- 9 of 12 steps in 4 s, 11 buffered
+   644 ms  click an Argo float -- argo 1902669:3, 102 levels matched
+   114 ms  WOW 2: model vs observation -- bias -0.055, RMSE 0.369 over 102 levels
+  1931 ms  back to map -- selection kept
+
+  14 beats, 0 broken, 21.7 s end to end, 0 console errors
+```
+
+**Three things a presenter has to know**, all found by that rehearsal and none
+of them visible to a feature test:
+
+- **Region and time are not independent.** Only three or four floats are
+  contemporaneous with any given month, so a region and a month have to be
+  chosen *together*. **Bay of Bengal at 2023-10** has three; `central_bob` at
+  the same step has three; `sri_lanka_east` at 2024-06 has one.
+- **`andaman_sea` has no observation at any time in this catalogue.** Selecting
+  it can never reach the matchup panel. It is a real region with real model
+  data and no floats — worth showing deliberately as a blind spot, never by
+  accident on the way to WOW moment 2.
+- **Playing the timeline moves you off the float.** Section 9 plays the
+  timeline and *then* clicks a float, but playback stops wherever it stops, and
+  that is usually a month with nothing to click. Pause and step back before
+  clicking. The UI says so — the layers panel reads "0 of 992 within 16 days of
+  this step" — but on stage nobody is reading it.
+
+None of this is a defect. It is what a monthly model and a sparse float record
+do when you put them in the same view, and the platform reports it correctly
+throughout. It is only a hazard for someone who has not rehearsed.
+
 ## Architecture
 
 ```

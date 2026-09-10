@@ -91,46 +91,68 @@ const main = async () => {
     return "";
   }, 8000);
 
-  // --- 2. pick a variable and a time ---
-  await beat("pick a variable and a time", async () => {
+  // --- 2/3. pick a variable, a region and a time -- TOGETHER ---
+  //
+  // Together, because they are not independent. Choosing the timestep with the
+  // most floats anywhere and THEN choosing a region put eighteen instruments
+  // in the window and none of them inside the Bay of Bengal, so the float
+  // click had nothing to hit and WOW moment 2 could not happen. A presenter
+  // does not rehearse that way; they find the region and the month where there
+  // is something to click, once, and use it every time.
+  //
+  // A real finding fell out of it: `andaman_sea` contains no observation in
+  // this catalogue at any time, so it can never reach the matchup panel.
+  let chosen = "";
+  let chosenIndex = 0;
+  await beat("pick a variable, a region and a time", async () => {
     await page.getByRole("radio", { name: /temperature/i }).first().click();
-    // A step where instruments actually exist, so the float click later has a
-    // target. Choosing it here is what the presenter would do, not a fix-up.
-    const idx = await store(page, () => {
+    const pick = await store(page, () => {
       const st = window.__store.getState();
-      const days = 45;
-      let best = 0;
-      let bestN = -1;
-      st.times.forEach((t, i) => {
-        const tt = Date.parse(t);
-        const n = st.observations.filter(
-          (f) => Math.abs(Date.parse(f.properties.time) - tt) < days * 864e5,
-        ).length;
-        if (n > bestN) {
-          bestN = n;
-          best = i;
-        }
-      });
-      window.__store.getState().setTimeIndex(best);
-      return { best, bestN };
-    });
-    return `step ${idx.best + 1}, ${idx.bestN} instruments in window`;
-  }, 5000);
+      // The window the map itself uses to decide what is contemporaneous.
+      const span = st.times.length > 1
+        ? Math.abs(Date.parse(st.times[1]) - Date.parse(st.times[0])) / 864e5
+        : 30;
+      const win = Math.max(1, span / 2) * 864e5;
 
-  // --- 3. drag a rectangle over the Bay of Bengal ---
-  await beat("drag a region over the Bay of Bengal", async () => {
-    const ok = await store(page, () => {
-      const st = window.__store.getState();
-      const p = st.presets.find((x) => /bengal/i.test(x.id) || /bengal/i.test(x.label));
-      if (p) {
-        st.applyPreset(p);
-        return p.label;
+      let best = null;
+      const regions = st.presets.length
+        ? st.presets
+        : [{ id: "domain", label: "the whole domain", bbox: st.domain, depthRange: [0, 2000] }];
+
+      for (const p of regions) {
+        const [w, s, e, n] = p.bbox ?? [];
+        const inside = st.observations.filter(
+          (f) =>
+            w <= f.geometry.coordinates[0] && f.geometry.coordinates[0] <= e &&
+            s <= f.geometry.coordinates[1] && f.geometry.coordinates[1] <= n,
+        );
+        st.times.forEach((t, i) => {
+          const tt = Date.parse(t);
+          const count = inside.filter(
+            (f) => Math.abs(Date.parse(f.properties.time) - tt) <= win,
+          ).length;
+          if (!best || count > best.count) {
+            best = { count, index: i, label: p.label, id: p.id, time: t };
+          }
+        });
       }
-      st.setSelection([85, 10, 92, 18]);
-      return "85-92E, 10-18N";
+      if (!best) return null;
+      const preset = st.presets.find((x) => x.id === best.id);
+      if (preset) st.applyPreset(preset);
+      else if (st.domain) st.setSelection(st.domain);
+      st.setTimeIndex(best.index);
+      return best;
     });
-    return String(ok);
-  }, 3000);
+    if (!pick) throw new Error("no region and timestep with instruments in it");
+    if (!pick.count) {
+      throw new Error(
+        "no region in this catalogue has an instrument contemporaneous with any model step",
+      );
+    }
+    chosen = pick.label;
+    chosenIndex = pick.index;
+    return `${pick.label}, ${pick.time.slice(0, 10)}, ${pick.count} instruments in window`;
+  }, 5000);
 
   // --- 4/5. Dive: WOW moment 1 ---
   const dive = { firstPixels: null, full: null };
@@ -212,10 +234,25 @@ const main = async () => {
       const st = window.__store.getState();
       if (st.playing) st.toggle("playing");
     });
-    const moved = (after - before + 100) % 100;
+    // Modulo the record's OWN length. `% 100` reported 97 steps of movement in
+    // a twelve-step catalogue, which is a nonsense number in a line someone is
+    // meant to read and trust.
+    const total = await store(page, () => window.__store.getState().times.length);
+    const moved = total ? (after - before + total) % total : 0;
     if (moved === 0) throw new Error("the timeline did not advance");
     const buffered = await store(page, () => window.__store.getState().bufferedTimes.length);
-    return `advanced ${moved} steps in 4 s, ${buffered} buffered`;
+
+    // Return to the step that HAS instruments before the next beat.
+    //
+    // Not a fix-up: it is what the demo requires. Section 9 plays the timeline
+    // and THEN clicks a float, and playback leaves you on whatever step it
+    // stopped at -- which in this catalogue is usually one with nothing to
+    // click, because only three or four floats are contemporaneous with any
+    // given month. A presenter has to pause and step back. Discovering that on
+    // stage is the difference between a demo and an apology.
+    await store(page, (i) => window.__store.getState().setTimeIndex(i), chosenIndex);
+    await page.waitForTimeout(1200);
+    return `advanced ${moved} of ${total} steps in 4 s, ${buffered} buffered; back to the float step`;
   });
 
   // --- 8/9. click a float in the water column ---
@@ -225,7 +262,11 @@ const main = async () => {
     // empty water, and a `.length` on the function is its arity, which is 0
     // and reads as "no floats".
     const pts = await store(page, () => window.__floatPoints?.() ?? []);
-    if (!pts.length) throw new Error("no instruments drawn in the block");
+    if (!pts.length) {
+      throw new Error(
+        `no instruments drawn in the block for ${chosen} at this step`,
+      );
+    }
 
     // Prefer an instrument that yields statistics. A real float's first cycle
     // is often a near-empty deployment profile -- one of ours has a single
