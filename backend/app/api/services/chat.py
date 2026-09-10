@@ -76,7 +76,10 @@ recompute them, and do not average anything yourself. If a tool named the \
 value you want -- warmestMean, regionalRmse, peakAnomaly -- quote that field \
 rather than reading it out of an array.
 - You are not a forecast or a warning system. If asked to predict or to advise \
-on safety, say plainly that this is a research and visualisation tool."""
+on safety, say plainly that this is a research and visualisation tool.
+- The user is looking at something right now, described under "On screen" \
+below. Resolve "here", "this region", "now" and "this depth" against it \
+instead of asking what they mean."""
 
 READ_TOOLS: list[dict[str, Any]] = [
     {
@@ -187,6 +190,25 @@ READ_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "read_profile",
+            "description": (
+                "One instrument's measured profile against the model at the "
+                "same depths: bias, RMSE, correlation and how many levels "
+                "matched. Use the instrument name, e.g. 1902669."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "instrument": {"type": "string"},
+                    "variable": {"type": "string"},
+                },
+                "required": ["instrument"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_catalog",
             "description": (
                 "What this dataset actually is: model source, variables, the "
@@ -196,6 +218,35 @@ READ_TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def _view_block(view: dict[str, Any]) -> str:
+    """What the display currently shows, in the fewest words that resolve a pronoun.
+
+    Without this the assistant has to ask what "here" means, which in a tool
+    that is ALREADY showing a region is an absurd question -- the region is on
+    the screen between them.
+    """
+    bits = []
+    if view.get("variable"):
+        bits.append(f"variable: {view['variable']}")
+    if view.get("time"):
+        bits.append(f"timestep: {view['time']}")
+    if view.get("depth") is not None:
+        bits.append(f"depth slider: {float(view['depth']):.0f} m")
+    box = view.get("bbox")
+    if isinstance(box, (list, tuple)) and len(box) == 4:
+        bits.append(
+            "selected region (use this bbox when the user says here or this region): "
+            f"[{box[0]:.2f}, {box[1]:.2f}, {box[2]:.2f}, {box[3]:.2f}]"
+        )
+    else:
+        bits.append("no region selected; the whole domain is in view")
+    if view.get("mode"):
+        bits.append(f"mode: {view['mode']}")
+    if view.get("profile"):
+        bits.append(f"open profile: {view['profile']}")
+    return "\n".join(f"- {b}" for b in bits)
 
 
 def _view_named() -> list[dict[str, Any]]:
@@ -336,6 +387,69 @@ def run_read(store, name: str, args: dict[str, Any]) -> dict[str, Any]:
                 "units": out["units"],
             }
 
+        if name == "read_profile":
+            var = _variable(store, args)
+            want = str(args.get("instrument") or "").strip()
+            refs = [
+                r for r in store.observation_refs()
+                if r.id.split(":", 1)[0] == want or want in r.id
+            ]
+            if not refs:
+                return {"error": f"no instrument named {want!r} in this catalogue"}
+            from .matchup import compute_matchup, default_window_hours
+
+            cfd = store.dataset_for(var)
+            # Order by PROXIMITY TO THE MODEL, not by recency.
+            #
+            # "The newest cycles" is the obvious heuristic and it is wrong here:
+            # float 1902669 reports into 2026 while this model ends in June
+            # 2024, so its twelve newest cycles all fall outside the colocation
+            # window and the tool reported "no model data" for a float whose
+            # early cycles match at RMSE 0.25 over 99 levels. What is wanted is
+            # the cycle most likely to have a model step beside it.
+            steps = [np.datetime64(t[:19]) for t in cfd.time_strings()]
+
+            def gap(ref) -> float:
+                if not steps:
+                    return 0.0
+                try:
+                    t = np.datetime64(ref.time[:19])
+                except Exception:
+                    return 1e18
+                return min(abs(float((t - s) / np.timedelta64(1, "h"))) for s in steps)
+
+            refs.sort(key=gap)
+            window = default_window_hours(cfd)
+            for ref in refs[:12]:
+                try:
+                    profile = store.load_profile(ref)
+                    m = compute_matchup(
+                        cfd, profile, variable=var, window_hours=window,
+                    )
+                except Exception:
+                    continue
+                if m.n > 0:
+                    return {
+                        "instrument": want,
+                        "profile": ref.id,
+                        "platform": ref.platform,
+                        "time": ref.time,
+                        "lon": ref.lon, "lat": ref.lat,
+                        "variable": var,
+                        "units": CANONICAL[var].units,
+                        "bias": m.bias, "rmse": m.rmse, "mae": m.mae,
+                        "corr": m.corr, "levelsMatched": m.n,
+                        "radiusKm": m.radiusKm, "windowHours": m.windowHours,
+                        "note": "bias is model minus observation, at the observation depths",
+                    }
+            return {
+                "instrument": want,
+                "error": (
+                    "no cycle of this instrument has model data within the "
+                    "colocation window -- it reports outside the model's record"
+                ),
+            }
+
         if name == "read_instruments":
             from ..routers.instruments import instruments as rank
 
@@ -471,22 +585,59 @@ def _call_model(messages: list[dict[str, Any]], deadline: float) -> dict[str, An
         return pool.submit(_post, body).result(timeout=remaining)
 
 
-def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[str, Any]:
-    """Run the tool loop and return the answer, the readings, and any view actions."""
+def converse(
+    store,
+    history: list[dict[str, str]],
+    ctx: dict[str, Any],
+    view: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Collect the whole conversation into one object.
+
+    A thin wrapper over `stream()`, kept because the non-streaming endpoint and
+    the tests want a single result. The loop itself lives in the generator so
+    there is one implementation rather than two that drift.
+    """
+    final: dict[str, Any] = {}
+    for event in stream(store, history, ctx, view):
+        if event.get("type") == "final":
+            final = event
+    return final
+
+
+def stream(
+    store,
+    history: list[dict[str, str]],
+    ctx: dict[str, Any],
+    view: dict[str, Any] | None = None,
+):
+    """Run the tool loop, reporting each step as it happens.
+
+    A question costs 18-35 s here: every tool round is a round trip to a
+    free-tier model, and the first of a session queues. Twenty seconds of an
+    unchanging spinner is indistinguishable from a hang, and the honest thing
+    to show is what it is actually doing -- "reading the timeseries" is both
+    reassuring and the best available explanation of where the time went.
+
+    Yields dicts with a `type`: "tool" when a call starts, "reading" when a
+    read returns, "action" when a view call is queued, and exactly one "final".
+    """
     from .nlq import _context_block, available
 
     t0 = time.time()
     if not available():
-        return {
+        yield {
+            "type": "final",
             "reply": "",
             "error": "no model configured; set OCEANUPS_NLQ_API_KEY",
             "readings": [], "actions": [], "unverified": [],
             "rounds": 0, "latencyMs": 0,
         }
+        return
 
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM + "\n\nThis catalogue:\n" + _context_block(ctx)}
-    ]
+    system = SYSTEM + "\n\nThis catalogue:\n" + _context_block(ctx)
+    if view:
+        system += "\n\nOn screen:\n" + _view_block(view)
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
     for m in history[-12:]:
         role = m.get("role")
         if role in ("user", "assistant") and m.get("content"):
@@ -501,28 +652,34 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
         try:
             payload = _call_model(messages, deadline)
         except concurrent.futures.TimeoutError:
-            return {
+            yield {
+                "type": "final",
                 "reply": "", "error": f"{settings.nlq_model} timed out",
                 "readings": readings, "actions": actions, "unverified": [],
                 "rounds": rounds, "latencyMs": int((time.time() - t0) * 1000),
             }
+            return
         except urllib.error.HTTPError as exc:
             detail = ""
             try:
                 detail = exc.read().decode()[:200]
             except Exception:
                 pass
-            return {
+            yield {
+                "type": "final",
                 "reply": "", "error": f"HTTP {exc.code}: {detail or exc.reason}",
                 "readings": readings, "actions": actions, "unverified": [],
                 "rounds": rounds, "latencyMs": int((time.time() - t0) * 1000),
             }
+            return
         except Exception as exc:
-            return {
+            yield {
+                "type": "final",
                 "reply": "", "error": str(exc)[:200],
                 "readings": readings, "actions": actions, "unverified": [],
                 "rounds": rounds, "latencyMs": int((time.time() - t0) * 1000),
             }
+            return
 
         try:
             message = payload["choices"][0]["message"]
@@ -538,7 +695,8 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
                     "chat: reply states %d number(s) found in no reading: %s",
                     len(bad), bad,
                 )
-            return {
+            yield {
+                "type": "final",
                 "reply": reply,
                 "error": "",
                 "readings": readings,
@@ -549,6 +707,7 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
                 "rounds": rounds,
                 "latencyMs": int((time.time() - t0) * 1000),
             }
+            return
 
         messages.append({
             "role": "assistant",
@@ -567,6 +726,8 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
             if not isinstance(args, dict):
                 args = {}
 
+            yield {"type": "tool", "name": name, "args": args}
+
             if name.startswith("view_"):
                 # Not executed here: handed to the browser. The model is told
                 # it worked, because from its point of view it did -- the user
@@ -578,9 +739,12 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
                 else:
                     actions.append(tool)
                     result = {"ok": True, "applied": tool}
+                    yield {"type": "action", "action": tool}
             else:
                 result = run_read(store, name, args)
-                readings.append({"tool": name, "args": args, "result": result})
+                entry = {"tool": name, "args": args, "result": result}
+                readings.append(entry)
+                yield {"type": "reading", **entry}
 
             messages.append({
                 "role": "tool",
@@ -590,7 +754,8 @@ def converse(store, history: list[dict[str, str]], ctx: dict[str, Any]) -> dict[
             })
 
     # Ran out of rounds with tools still being called.
-    return {
+    yield {
+        "type": "final",
         "reply": "",
         "error": (
             f"stopped after {MAX_ROUNDS} rounds of tool calls without an answer"

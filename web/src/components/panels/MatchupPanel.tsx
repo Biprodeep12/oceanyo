@@ -7,6 +7,8 @@
 // nothing here is generated or inferred.
 
 import { useMemo, useState } from "react";
+
+import { IconClose } from "@/components/ui/icons";
 import { useIsMobile } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -345,11 +347,26 @@ export default function MatchupPanel() {
   const setMatchup = useSessionStore((s) => s.setMatchup);
   const varMeta = useSessionStore((s) => s.variables.find((v) => v.variable === s.variable));
   const mobile = useIsMobile();
+  // Both panels want the same slot beside the rail. The assistant keeps it --
+  // it is the one being typed into -- and the profile shifts one panel-width
+  // left rather than being hidden, because comparing a float against what the
+  // assistant just said about it is the whole point of having both open.
+  const assistantOpen = useSessionStore((s) => s.assistantOpen);
+  const shell = mobile
+    ? "ze-side-panel ze-side-panel-mobile"
+    : assistantOpen
+      ? "ze-side-panel ze-side-panel-stacked"
+      : "ze-side-panel";
 
   if (loading) {
     return (
-      <div className="ze-panel px-3.5 py-3 text-[12px] text-[color:var(--ze-text-dim)]">
-        Loading profile&hellip;
+      <div className={shell}>
+        <header className="ze-side-head">
+          <span className="ze-side-title">Profile</span>
+        </header>
+        <div className="px-4 py-3 text-[12px] text-[color:var(--ze-text-dim)]">
+          Loading&hellip;
+        </div>
       </div>
     );
   }
@@ -361,44 +378,36 @@ export default function MatchupPanel() {
   };
 
   return (
-    <div
-      className={
-        mobile
-          ? // Anchored to the TOP on a phone: the bottom belongs to the
-            // timeline and the colour scale, and a profile that covered them
-            // would hide the controls needed to change what it is showing.
-            "ze-panel fixed inset-x-2 top-2 max-h-[58dvh] overflow-y-auto p-3.5"
-          : // Wider than the rail-adjacent panels: this one carries a four-column
-            // statistics row, a depth profile and a Taylor diagram, and at
-            // 288px the chart was 240px of plot for a 2000 m axis. Capped to
-            // the viewport so a deep profile scrolls inside the panel instead
-            // of running off the bottom of the screen.
-            "ze-panel ze-scroll max-h-[calc(100dvh-24px)] w-[360px] overflow-y-auto p-3.5"
-      }
-    >
-      <div className="mb-2 flex items-start justify-between">
-        <div>
-          <div className="ze-section-label !m-0 !p-0">{profile.platform} profile</div>
-          <div className="mt-0.5 font-mono text-[13px] text-[color:var(--ze-text)]">
+    // Same chrome as the assistant. Two panels that behave alike -- a tall
+    // column on the right, header, scrolling body -- had drifted into two
+    // designs with different paddings, headers and close buttons. The shape is
+    // described once in globals.css now.
+    //
+    // On a phone the panel takes the screen rather than hanging off the top:
+    // at 58dvh a 2000 m profile was 300px of plot with its own scrollbar
+    // inside a scrolling page.
+    <div className={shell}>
+      <header className="ze-side-head">
+        <div className="min-w-0">
+          <span className="ze-side-title">{profile.platform} profile</span>
+          <div className="mt-0.5 truncate font-mono text-[13px] text-[color:var(--ze-text)]">
             {profile.id}
           </div>
-          <div className="text-[10px] text-[color:var(--ze-text-faint)]">
+          <p className="ze-side-sub">
             {profile.lat.toFixed(2)}&deg;N {profile.lon.toFixed(2)}&deg;E &middot;{" "}
             {profile.time.slice(0, 10)} &middot; mode {profile.dataMode}
-          </div>
+          </p>
         </div>
-        <button
-          onClick={close}
-          className="grid h-6 w-6 place-items-center rounded-md text-[color:var(--ze-text-dim)] hover:bg-white/10 hover:text-white"
-          aria-label="Close profile"
-        >
-          &times;
+        <button onClick={close} className="ze-side-close" aria-label="Close profile">
+          <IconClose className="h-4 w-4" />
         </button>
-      </div>
+      </header>
+
+      <div className="ze-scroll flex-1 overflow-y-auto px-3.5 py-3">
 
       {matchup ? (
         <>
-          <div className="mb-2 rounded-lg bg-black/25 p-2.5">
+          <div className="mb-2 rounded-lg bg-[color:var(--ze-inset)] p-2.5">
             <div className="grid grid-cols-4 gap-1.5">
               <Stat label="Bias" value={matchup.bias} hint="mean(model - observation)" />
               <Stat label="RMSE" value={matchup.rmse} />
@@ -470,6 +479,7 @@ export default function MatchupPanel() {
           No matchup for this profile and variable.
         </div>
       )}
+      </div>
     </div>
   );
 }

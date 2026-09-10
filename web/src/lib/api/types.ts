@@ -451,3 +451,26 @@ export interface ChatResponse {
   rounds: number;
   latencyMs: number;
 }
+
+/** What the display currently shows, so "here" and "now" resolve. */
+export interface ChatView {
+  variable?: string;
+  time?: string;
+  depth?: number;
+  bbox?: BBox;
+  mode?: string;
+  profile?: string;
+}
+
+/**
+ * One line of POST /api/chat/stream.
+ *
+ * The loop reports as it runs because a question costs 18-70 s -- every tool
+ * round is a round trip to a free-tier model. "reading the timeseries" is both
+ * reassuring and the truest account of where the time went.
+ */
+export type ChatEvent =
+  | { type: "tool"; name: string; args: Record<string, unknown> }
+  | { type: "reading"; tool: string; args: Record<string, unknown>; result: unknown }
+  | { type: "action"; action: { name: string; args: Record<string, unknown> } }
+  | ({ type: "final" } & ChatResponse);

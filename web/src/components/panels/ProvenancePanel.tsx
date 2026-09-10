@@ -55,7 +55,7 @@ export default function ProvenancePanel() {
         className={`mb-2.5 rounded-lg px-3 py-2 text-[11px] leading-relaxed ${
           prov.synthetic
             ? "bg-[color:var(--ze-warn)]/12 text-[color:var(--ze-warn)]"
-            : "bg-black/25 text-[color:var(--ze-text-dim)]"
+            : "bg-[color:var(--ze-inset)] text-[color:var(--ze-text-dim)]"
         }`}
       >
         {prov.synthetic

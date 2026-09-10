@@ -13,6 +13,14 @@
   --ze-panel: rgba(26, 29, 33, 0.86);
   --ze-panel-solid: rgb(26, 29, 33);
   --ze-hover: rgba(255, 255, 255, 0.07);
+  /* A RECESSED surface: the stat row, a code block, a tool reading. Six
+     places used `bg-black/25` directly, which is a dark-theme constant --
+     on the light theme they rendered as grey slabs on white. */
+  --ze-inset: rgba(0, 0, 0, 0.24);
+  --ze-inset-strong: rgba(0, 0, 0, 0.34);
+  /* Panels sit over a map that can be any colour. Saturating the backdrop
+     looks rich over a dark ocean and stains the panel over a bright one. */
+  --ze-panel-filter: blur(18px) saturate(1.3);
   --ze-active: rgba(255, 255, 255, 0.13);
   --ze-text: #eef1f4;
   --ze-text-dim: #99a2ac;
@@ -74,9 +82,16 @@
   readable control.
 */
 :root[data-theme="light"] {
-  --ze-panel: rgba(255, 255, 255, 0.9);
+  /* 0.96, not 0.9: at 0.9 over a saturated field -- a yellow SST map -- the
+     panel took the colour underneath and the text lost most of its contrast.
+     A panel has to be readable over whatever the data happens to look like. */
+  --ze-panel: rgba(255, 255, 255, 0.96);
   --ze-panel-solid: rgb(250, 251, 252);
   --ze-hover: rgba(15, 30, 45, 0.06);
+  --ze-inset: rgba(15, 30, 45, 0.055);
+  --ze-inset-strong: rgba(15, 30, 45, 0.085);
+  /* No saturate here: it pulled the map's colour up through the panel. */
+  --ze-panel-filter: blur(18px);
   --ze-active: rgba(15, 30, 45, 0.12);
   --ze-text: #16202a;
   --ze-text-dim: #4e5c69;
@@ -546,4 +561,178 @@ body {
   border-bottom-color: var(--ze-panel-solid);
   border-left-color: var(--ze-panel-solid);
   border-right-color: var(--ze-panel-solid);
+}
+
+/* ---------------------------------------------------------- side panels ---
+   The assistant and the profile panel are the same OBJECT: a tall column on
+   the right, over the map, with a header, a scrolling body and something
+   fixed at the bottom. They were built at different times and had drifted --
+   different paddings, different close buttons, different header weights, one
+   with a title row and one without. Two panels that behave alike should look
+   alike, and the way to guarantee that is to describe the shape once.
+
+   Right offset is 62px: the icon rail owns the far edge, and a panel that
+   tucks under it hides the controls that opened it. */
+.ze-side-panel {
+  position: fixed;
+  top: 12px;
+  right: 62px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  width: 400px;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--ze-line);
+  background: var(--ze-panel);
+  backdrop-filter: var(--ze-panel-filter);
+  box-shadow: var(--ze-panel-shadow, 0 18px 48px rgba(0, 0, 0, 0.34));
+}
+
+/* On a phone the rail is not beside it, so the panel takes the screen. */
+.ze-side-panel-mobile {
+  right: 8px;
+  left: 8px;
+  top: 8px;
+  bottom: 8px;
+  width: auto;
+}
+
+.ze-side-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--ze-line);
+  padding: 12px 14px 11px;
+}
+
+.ze-side-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ze-text-dim);
+}
+
+.ze-side-sub {
+  margin-top: 3px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ze-text-faint);
+}
+
+.ze-side-close {
+  display: grid;
+  height: 24px;
+  width: 24px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--ze-text-dim);
+}
+.ze-side-close:hover {
+  background: var(--ze-hover);
+  color: var(--ze-text);
+}
+
+.ze-side-action {
+  border-radius: 7px;
+  border: 1px solid var(--ze-line);
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--ze-text-dim);
+}
+.ze-side-action:hover {
+  background: var(--ze-hover);
+  color: var(--ze-text);
+}
+
+.ze-side-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--ze-line);
+  padding: 9px 12px;
+}
+
+/* --- conversation --- */
+.ze-bubble-user {
+  margin-left: 22px;
+  border-radius: 12px 12px 4px 12px;
+  background: var(--ze-accent-soft);
+  padding: 7px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ze-accent-fg);
+}
+
+/* Measured data. Deliberately NOT styled like the prose beside it: this is
+   the evidence, and it has to look like a different kind of object. */
+.ze-reading {
+  margin-top: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--ze-line);
+  background: var(--ze-inset);
+}
+
+.ze-tool-chip {
+  border-radius: 6px;
+  border: 1px solid var(--ze-line);
+  padding: 2px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  color: var(--ze-text-faint);
+}
+
+.ze-warn-box {
+  margin-top: 7px;
+  border-radius: 10px;
+  border: 1px solid var(--ze-warn);
+  padding: 7px 10px;
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--ze-warn);
+}
+
+/* Progress dots: the last one pulses, the finished ones do not. */
+.ze-dot {
+  display: inline-block;
+  height: 5px;
+  width: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ze-text-faint);
+}
+.ze-dot-live {
+  background: var(--ze-accent);
+  animation: ze-pulse 1.1s ease-in-out infinite;
+}
+@keyframes ze-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ze-dot-live { animation: none; opacity: 1; }
+}
+
+/* The profile panel when the assistant already holds the right-hand slot.
+   412px = the panel width plus its gap. Below 900px there is no room for two
+   columns over a map, so it takes the slot back and the assistant covers it --
+   which is the right priority at that width: one panel readable beats two
+   truncated. */
+.ze-side-panel-stacked {
+  right: 474px;
+}
+@media (max-width: 900px) {
+  .ze-side-panel-stacked {
+    right: 62px;
+  }
+}
+
+/* A lighter shadow on the light theme: the dark one reads as a drop-shadow
+   from a different design system entirely. */
+:root[data-theme="light"] {
+  --ze-panel-shadow: 0 14px 40px rgba(20, 40, 60, 0.18);
 }

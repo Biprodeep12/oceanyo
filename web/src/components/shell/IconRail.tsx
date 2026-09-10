@@ -112,6 +112,8 @@ export default function IconRail() {
   const domain = useSessionStore((s) => s.domain);
   const climatologyVars = useSessionStore((s) => s.health?.climatology);
   const nlqReady = useSessionStore((s) => s.health?.nlq ?? false);
+  const assistantOpen = useSessionStore((s) => s.assistantOpen);
+  const setAssistantOpen = useSessionStore((s) => s.setAssistantOpen);
   const [eventsErr, setEventsErr] = useState<string | null>(null);
   const mobile = useIsMobile();
 
@@ -319,7 +321,7 @@ export default function IconRail() {
                 compressed.
               </div>
               {caps && (
-                <div className="mx-4 mt-2 rounded-lg bg-black/25 px-3 py-2 font-mono text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+                <div className="mx-4 mt-2 rounded-lg bg-[color:var(--ze-inset)] px-3 py-2 font-mono text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
                   <div>
                     renderer tier <span className="text-[color:var(--ze-text-dim)]">{caps.tier}</span>
                     {caps.tier === "slices" && " (volume unsupported)"}
@@ -371,7 +373,7 @@ export default function IconRail() {
                   It is an exploration and validation tool, complementary to
                   INCOIS operational products.
                 </p>
-                <div className="rounded-lg bg-black/25 px-3 py-2 font-mono text-[10px]">
+                <div className="rounded-lg bg-[color:var(--ze-inset)] px-3 py-2 font-mono text-[10px]">
                   <div>catalog {health?.catalogId ?? "--"}</div>
                   <div>
                     standards CF-1.8
@@ -601,9 +603,9 @@ export default function IconRail() {
         {nlqReady && (
           <RailButton
             label="Assistant"
+            active={assistantOpen}
             onClick={() => {
-              (window as unknown as { __toggleAssistant?: () => void })
-                .__toggleAssistant?.();
+              setAssistantOpen(!assistantOpen);
               setOpen(null);
             }}
           >

@@ -254,7 +254,7 @@ export default function CommandPalette({
 
         {/* The resolved tool call, before anything runs. */}
         {active && (
-          <div className="border-b border-[color:var(--ze-line)] bg-black/20 px-4 py-1.5 font-mono text-[10.5px] text-[color:var(--ze-accent,#4fd1c5)]">
+          <div className="border-b border-[color:var(--ze-line)] bg-[color:var(--ze-inset)] px-4 py-1.5 font-mono text-[10.5px] text-[color:var(--ze-accent,#4fd1c5)]">
             {describe(active.tool)}
           </div>
         )}

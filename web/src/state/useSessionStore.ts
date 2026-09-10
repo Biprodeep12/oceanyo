@@ -89,6 +89,14 @@ export interface SessionState {
   selectionQuad: [number, number][] | null;
   /** Layers sheet visibility; only consulted on a phone. */
   layersOpen: boolean;
+  /**
+   * Assistant panel visibility.
+   *
+   * In the store rather than in the page because three components need it: the
+   * page mounts the panel, the rail highlights its button, and the profile
+   * panel has to step aside so the two do not occupy the same slot.
+   */
+  assistantOpen: boolean;
   /** First corner tapped, while the second is still to come. */
   drawAnchor: [number, number] | null;
   depthRange: [number, number];
@@ -177,6 +185,7 @@ export interface SessionState {
   setDrawShape: (v: "rect" | "quad") => void;
   setSelectionQuad: (q: [number, number][] | null) => void;
   setLayersOpen: (v: boolean) => void;
+  setAssistantOpen: (v: boolean) => void;
   setDrawAnchor: (p: [number, number] | null) => void;
   setDepthRange: (r: [number, number]) => void;
   setPhase: (p: TransitionPhase) => void;
@@ -233,6 +242,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   selectionQuad: null,
   drawAnchor: null,
   layersOpen: false,
+  assistantOpen: false,
   depthRange: [0, 2000],
 
   phase: "map",
@@ -294,6 +304,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSelectionQuad: (selectionQuad) => set({ selectionQuad }),
   setDrawAnchor: (drawAnchor) => set({ drawAnchor }),
   setLayersOpen: (layersOpen) => set({ layersOpen }),
+  setAssistantOpen: (assistantOpen) => set({ assistantOpen }),
   setDepthRange: (depthRange) => set({ depthRange }),
   setPhase: (phase) => set({ phase }),
   setBlockProgress: (blockProgress) => set({ blockProgress }),

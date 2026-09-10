@@ -17,7 +17,9 @@ import type {
   InstrumentQueryResponse,
   ObservationProfile,
   ParserCapabilities,
+  ChatEvent,
   ChatResponse,
+  ChatView,
   ProvenanceResponse,
   QueryResponse,
   QueryStatus,
@@ -134,14 +136,69 @@ export const api = {
    */
   chat: (
     messages: { role: string; content: string }[],
+    view?: ChatView,
     signal?: AbortSignal,
   ) =>
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, view }),
       signal,
     }).then((r) => r.json() as Promise<ChatResponse>),
+
+  /**
+   * The same conversation, reported as it happens.
+   *
+   * NDJSON read off the body stream rather than EventSource: EventSource
+   * cannot POST, and the conversation has to go in a body -- a question in a
+   * query string would land in history, proxy logs and any shared link.
+   *
+   * `onEvent` is called for every line; the promise resolves with the final
+   * one. A partial line is held back until its newline arrives, because a
+   * chunk boundary lands mid-object often enough to matter.
+   */
+  chatStream: async (
+    messages: { role: string; content: string }[],
+    view: ChatView | undefined,
+    onEvent: (e: ChatEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<ChatResponse | null> => {
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, view }),
+      signal,
+    });
+    if (!res.body) throw new Error("no response stream");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let final: ChatResponse | null = null;
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const text = line.trim();
+        if (!text) continue;
+        let event: ChatEvent;
+        try {
+          event = JSON.parse(text) as ChatEvent;
+        } catch {
+          // A malformed line must not abandon a conversation that is
+          // otherwise fine; the final event is what the caller needs.
+          continue;
+        }
+        onEvent(event);
+        if (event.type === "final") final = event;
+      }
+    }
+    return final;
+  },
 
   queryStatus: (signal?: AbortSignal) =>
     getJSON<QueryStatus>("/api/query/status", signal),

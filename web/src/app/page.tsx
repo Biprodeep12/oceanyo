@@ -49,7 +49,7 @@ export default function Page() {
   const touch = useIsTouch();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistantOpen = useSessionStore((st) => st.assistantOpen);
 
   // --- theme and any shared session, before anything paints ---
   useEffect(() => {
@@ -89,16 +89,7 @@ export default function Page() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // The rail button lives in IconRail; the panel lives here, because it is a
-  // sibling of the map rather than of the rail. One shared toggle rather than
-  // duplicating the panel into the rail's own tree.
-  useEffect(() => {
-    const w = window as unknown as { __toggleAssistant?: () => void };
-    w.__toggleAssistant = () => setAssistantOpen((v) => !v);
-    return () => {
-      delete w.__toggleAssistant;
-    };
-  }, []);
+
 
   // --- bootstrap the catalog ---
   useEffect(() => {
@@ -220,9 +211,10 @@ export default function Page() {
 
       <IconRail />
 
-      <div className="pointer-events-auto z-40 md:absolute md:right-[62px] md:top-3 md:z-30">
-        <MatchupPanel />
-      </div>
+      {/* No positioning wrapper: .ze-side-panel places itself, and a wrapper
+          that also positioned it meant two places to change when the rail
+          moved. */}
+      <MatchupPanel />
 
       {/* colour scale: bottom-left on a desktop, a full-width strip above the
           time bar on a phone, where there is no room beside it */}
@@ -294,7 +286,11 @@ export default function Page() {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      {assistantOpen && <AssistantPanel onClose={() => setAssistantOpen(false)} />}
+      {assistantOpen && (
+        <AssistantPanel
+          onClose={() => useSessionStore.getState().setAssistantOpen(false)}
+        />
+      )}
       <SelectionTag />
       <HoverBubble />
       <StatusBar />
