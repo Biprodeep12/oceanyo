@@ -29,7 +29,7 @@ import xarray as xr
 
 from ....core.geometry import BBox
 from ....core.models import ObservationProfile, ParserCapabilities, ProfileVariable
-from ....core.netcdf import open_dataset
+from ....core.netcdf import cached_dataset
 from ..qc import decode_qc
 from ..registry import REGISTRY, ProfileRef
 from ..timeutil import epoch_to_iso, juld_to_iso
@@ -217,7 +217,7 @@ class GliderEGOParser:
 
         for path in sorted(root.glob("*.nc")):
             try:
-                with open_dataset(path) as ds:
+                with cached_dataset(path) as ds:
                     if _is_timeseries(ds):
                         refs.extend(self._discover_timeseries(ds, path, bbox, t0, t1))
                     else:
@@ -302,7 +302,7 @@ class GliderEGOParser:
 
     # -- loading ----------------------------------------------------------
     def load(self, ref: ProfileRef) -> ObservationProfile:
-        with open_dataset(ref.path) as ds:
+        with cached_dataset(ref.path) as ds:
             if _is_timeseries(ds):
                 return self._load_timeseries(ds, ref)
             return self._load_profile(ds, ref)

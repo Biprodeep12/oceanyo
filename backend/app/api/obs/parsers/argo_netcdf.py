@@ -21,7 +21,7 @@ import xarray as xr
 
 from ....core.geometry import BBox
 from ....core.models import ObservationProfile, ParserCapabilities, ProfileVariable
-from ....core.netcdf import open_dataset
+from ....core.netcdf import cached_dataset
 from ..qc import decode_qc
 from ..registry import REGISTRY, ProfileRef
 from ..timeutil import juld_to_iso
@@ -72,7 +72,7 @@ class ArgoNetCDFParser:
 
         for path in sorted(root.glob("*.nc")):
             try:
-                with open_dataset(path) as ds:
+                with cached_dataset(path) as ds:
                     wmo = _scalar_str(ds, "PLATFORM_NUMBER", path.stem)
                     mode = _scalar_str(ds, "DATA_MODE", "R") or "R"
                     lats = np.atleast_1d(ds["LATITUDE"].values)
@@ -108,7 +108,7 @@ class ArgoNetCDFParser:
         return refs
 
     def load(self, ref: ProfileRef) -> ObservationProfile:
-        with open_dataset(ref.path) as ds:
+        with cached_dataset(ref.path) as ds:
             i = ref.index
             pres = np.atleast_2d(ds["PRES"].values)[i].astype(float)
 

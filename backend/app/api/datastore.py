@@ -18,6 +18,7 @@ from pathlib import Path
 from ..core.catalog import Catalog
 from ..core.cf_adapter import CFDataset
 from ..core.geometry import BBox
+from ..core.netcdf import clear_dataset_cache, dataset_cache_stats
 from ..core.models import ObservationProfile
 from .obs.registry import REGISTRY, ProfileRef, load_builtin_parsers
 
@@ -140,12 +141,18 @@ class DataStore:
                 loaded += 1
             except Exception:
                 continue
-        log.info("prewarmed %d/%d profiles in %.1fs", loaded, len(refs), time.time() - t0)
+        cache = dataset_cache_stats()
+        log.info(
+            "prewarmed %d/%d profiles in %.1fs (%d source files open, %d hits / %d misses)",
+            loaded, len(refs), time.time() - t0,
+            cache["files"], cache["hits"], cache["misses"],
+        )
 
     def close(self) -> None:
         for d in (self.model, self.bgc, self.bathymetry, self.climatology):
             if d is not None:
                 d.ds.close()
+        clear_dataset_cache()
 
     # -- observations -----------------------------------------------------
     def reindex_observations(self) -> None:
@@ -166,6 +173,10 @@ class DataStore:
         with self._lock:
             self._refs = refs
             self._profiles.clear()
+        # The observation files themselves are cached open. Reindexing exists
+        # to pick up a changed catalogue, so holding the previous one's handles
+        # would defeat the point of calling it.
+        clear_dataset_cache()
 
     def observation_refs(
         self,
