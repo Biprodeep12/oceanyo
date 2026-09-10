@@ -18,6 +18,7 @@ import {
   IconMinus,
   IconMoon,
   IconPlus,
+  IconPulse,
   IconReceipt,
   IconRegion,
   IconSettings,
@@ -37,7 +38,14 @@ import { probeGpu, type GpuCaps } from "@/three/caps";
 import { viewport } from "@/lib/viewport";
 import { useSessionStore } from "@/state/useSessionStore";
 
-type PanelId = "regions" | "settings" | "info" | "provenance" | "export" | null;
+type PanelId =
+  | "regions"
+  | "settings"
+  | "info"
+  | "provenance"
+  | "export"
+  | "events"
+  | null;
 
 function RailButton({
   label,
@@ -78,11 +86,19 @@ export default function IconRail() {
   const setTheme = useSessionStore((s) => s.setTheme);
   const phase = useSessionStore((s) => s.phase);
   const drawMode = useSessionStore((s) => s.drawMode);
+  const drawShape = useSessionStore((s) => s.drawShape);
+  const setDrawShape = useSessionStore((s) => s.setDrawShape);
   const setDrawMode = useSessionStore((s) => s.setDrawMode);
   const layersOpen = useSessionStore((s) => s.layersOpen);
   const setLayersOpen = useSessionStore((s) => s.setLayersOpen);
   const variable = useSessionStore((s) => s.variable);
   const coverage = useSessionStore((s) => s.coverage);
+  const events = useSessionStore((s) => s.events);
+  const setEvents = useSessionStore((s) => s.setEvents);
+  const setTimeIndex = useSessionStore((s) => s.setTimeIndex);
+  const domain = useSessionStore((s) => s.domain);
+  const climatologyVars = useSessionStore((s) => s.health?.climatology);
+  const [eventsErr, setEventsErr] = useState<string | null>(null);
   const mobile = useIsMobile();
 
   // Fetched once, lazily, and reused by both the provenance panel and every
@@ -102,6 +118,22 @@ export default function IconRail() {
     setNote(msg);
     setTimeout(() => setNote(""), 2600);
   };
+
+  // Scanned when the panel is opened, not at startup: it is one anomaly grid
+  // per timestep and nothing on the first screen depends on it.
+  useEffect(() => {
+    if (open !== "events") return;
+    if (!(climatologyVars ?? []).includes(variable)) return;
+    const ac = new AbortController();
+    setEventsErr(null);
+    api
+      .events({ variable, bbox: domain ?? undefined }, ac.signal)
+      .then(setEvents)
+      .catch((e) => {
+        if ((e as Error).name !== "AbortError") setEventsErr((e as Error).message);
+      });
+    return () => ac.abort();
+  }, [open, variable, domain, climatologyVars, setEvents]);
 
   const toggle = (id: Exclude<PanelId, null>) =>
     setOpen((cur) => (cur === id ? null : id));
@@ -127,9 +159,37 @@ export default function IconRail() {
           {open === "regions" && (
             <Popover title="Regions" onClose={() => setOpen(null)}>
               <div className="px-4 pb-1 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
-                Pick a preset, or use <b>Draw region</b> and tap two opposite
-                corners. On a mouse, shift+drag does the same thing. Then press
-                Dive.
+                Pick a preset, or draw one. On a mouse, shift+drag does the same
+                as a rectangle. Then press Dive.
+              </div>
+              <div className="flex items-center gap-1.5 px-4 pb-2 pt-1">
+                {(
+                  [
+                    ["rect", "Rectangle", "Two opposite corners"],
+                    ["quad", "Four corners", "Any convex quadrilateral, in order"],
+                  ] as const
+                ).map(([shape, label, hint]) => (
+                  <button
+                    key={shape}
+                    className="ze-btn !px-2.5 !py-1 !text-[11px]"
+                    data-active={drawShape === shape ? "true" : "false"}
+                    title={hint}
+                    onClick={() => {
+                      setDrawShape(shape);
+                      setDrawMode(true);
+                      setOpen(null);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {/* Said here, where the choice is made, rather than discovered
+                  later as a block that does not match the outline. */}
+              <div className="px-4 pb-2 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+                A four-corner region is fetched as its bounding box &mdash; a
+                NetCDF subset is a rectangle and nothing else &mdash; and the
+                block is clipped to the shape you drew.
               </div>
               <div className="mt-1 flex flex-col">
                 {presets.map((p) => (
@@ -275,6 +335,81 @@ export default function IconRail() {
               </div>
             </Popover>
           )}
+          {open === "events" && (
+            <Popover title="Events" onClose={() => setOpen(null)}>
+              {!(climatologyVars ?? []).includes(variable) ? (
+                <div className="px-4 pb-3 text-[11.5px] leading-relaxed text-[color:var(--ze-text-dim)]">
+                  This catalogue has no climatology for {variable}, and an event
+                  is defined against one. Try temperature or salinity.
+                </div>
+              ) : eventsErr ? (
+                <div className="px-4 pb-3 text-[11.5px] text-[color:var(--ze-warn)]">
+                  {eventsErr}
+                </div>
+              ) : !events ? (
+                <div className="px-4 pb-3 text-[11.5px] text-[color:var(--ze-text-dim)]">
+                  scanning every step against the climatology&hellip;
+                </div>
+              ) : (
+                <div className="ze-scroll max-h-[58vh] overflow-y-auto px-4 pb-3">
+                  <div className="mb-2 text-[11px] leading-relaxed text-[color:var(--ze-text-dim)]">
+                    {events.method}
+                  </div>
+                  {!events.events.length && (
+                    <div className="text-[11.5px] text-[color:var(--ze-text-dim)]">
+                      No step in this record puts more than{" "}
+                      {Math.round(events.areaFraction * 100)}% of the region beyond
+                      the threshold.
+                    </div>
+                  )}
+                  {events.events.map((e) => (
+                    <button
+                      key={`${e.kind}-${e.start}`}
+                      className="ze-row w-full flex-col !items-start gap-0.5 py-2"
+                      title="Jump to the first step and play the event"
+                      onClick={() => {
+                        setTimeIndex(e.startIndex);
+                        const st = useSessionStore.getState();
+                        if (!st.playing) st.toggle("playing");
+                        setOpen(null);
+                      }}
+                    >
+                      <span className="flex w-full items-baseline justify-between gap-2">
+                        <span
+                          className="text-[11.5px]"
+                          style={{
+                            color:
+                              e.kind === "warm"
+                                ? "rgb(226,96,63)"
+                                : "rgb(63,140,226)",
+                          }}
+                        >
+                          {e.kind === "warm" ? "Warm" : "Cool"} exceedance
+                        </span>
+                        <span className="font-mono text-[10px] text-[color:var(--ze-text-faint)]">
+                          {e.steps} step{e.steps === 1 ? "" : "s"}
+                        </span>
+                      </span>
+                      <span className="text-[10.5px] text-[color:var(--ze-text-dim)]">
+                        {e.start.slice(0, 7)} to {e.end.slice(0, 7)} &middot; peak{" "}
+                        {e.peakAnomaly > 0 ? "+" : ""}
+                        {e.peakAnomaly.toFixed(2)} {events.units} over{" "}
+                        {Math.round(e.peakArea * 100)}% of the region
+                      </span>
+                    </button>
+                  ))}
+                  {/* The caveat sits with the events, not in a footnote
+                      somewhere else. Calling these marine heatwaves is the
+                      easiest way to lose the credibility the matchup
+                      statistics earn. */}
+                  <div className="mt-2 border-t border-[color:var(--ze-line)] pt-2 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+                    {events.notHobday}
+                  </div>
+                </div>
+              )}
+            </Popover>
+          )}
+
           {open === "provenance" && (
             <Popover title="Provenance" onClose={() => setOpen(null)}>
               <ProvenancePanel />
@@ -385,6 +520,7 @@ export default function IconRail() {
             label="Draw region"
             active={drawMode}
             onClick={() => {
+              setDrawShape("rect");
               setDrawMode(!drawMode);
               setOpen(null);
               if (mobile) setLayersOpen(false);
@@ -406,6 +542,13 @@ export default function IconRail() {
           onClick={() => toggle("settings")}
         >
           <IconSettings />
+        </RailButton>
+        <RailButton
+          label="Events"
+          active={open === "events"}
+          onClick={() => toggle("events")}
+        >
+          <IconPulse />
         </RailButton>
         <RailButton
           label="Provenance"

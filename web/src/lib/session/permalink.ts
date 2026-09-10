@@ -27,6 +27,8 @@ export interface SessionSnapshot {
   depth?: number;
   t?: number;
   bbox?: BBox;
+  /** Four corners, when the region was drawn as a quadrilateral. */
+  quad?: [number, number][];
   dr?: [number, number];
   block?: boolean;
   exag?: number;
@@ -52,6 +54,7 @@ export function snapshot(): SessionSnapshot {
     depth: Math.round(s.depth),
     t: s.timeIndex,
     bbox: s.selection ?? undefined,
+    quad: s.selectionQuad ?? undefined,
     dr: s.depthRange,
     block: s.phase === "block" || s.phase === "holding",
     exag: s.exaggeration,
@@ -110,7 +113,17 @@ export function applySnapshot(snap: SessionSnapshot): void {
   if (d !== undefined) st.setDepth(d);
   const t = num(snap.t);
   if (t !== undefined) st.setTimeIndex(Math.max(0, Math.round(t)));
+  // Selection before quad: setSelection clears the quad, so restoring them the
+  // other way round would drop the shape from every shared link.
   if (isBBox(snap.bbox)) st.setSelection(snap.bbox);
+  const quad = snap.quad;
+  if (
+    Array.isArray(quad) &&
+    quad.length === 4 &&
+    quad.every((p) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite))
+  ) {
+    st.setSelectionQuad(quad as [number, number][]);
+  }
   const dr = snap.dr;
   if (Array.isArray(dr) && dr.length === 2 && dr.every((n) => Number.isFinite(n))) {
     st.setDepthRange([dr[0], dr[1]]);

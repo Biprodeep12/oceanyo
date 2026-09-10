@@ -31,7 +31,12 @@ import {
 import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
 import { shortLabel } from "@/lib/variableLabels";
 import { useIsMobile } from "@/state/useMediaQuery";
-import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
+import {
+  currentTime,
+  currentVariable,
+  MAX_SECTION_POINTS,
+  useSessionStore,
+} from "@/state/useSessionStore";
 
 function variableIcon(key: string) {
   if (key === "temperature") return <IconThermometer />;
@@ -200,18 +205,31 @@ export default function LayersPanel() {
                     ? "click a point on the sea surface"
                     : s.sectionPoints.length === 1
                       ? "click the second point"
-                      : "curtain sampled at the model levels"}
+                      : s.sectionPoints.length >= MAX_SECTION_POINTS
+                        ? `${MAX_SECTION_POINTS} waypoints is the limit; a further click moves the last one`
+                        : "keep clicking to bend the transect, or leave it straight"}
                   {s.sectionPoints.length > 0 && (
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="truncate font-mono text-[10px] text-[color:var(--ze-text-dim)]">
+                    <>
+                      <div className="mt-1 truncate font-mono text-[10px] text-[color:var(--ze-text-dim)]">
                         {s.sectionPoints
                           .map((p) => `${p[0].toFixed(2)}, ${p[1].toFixed(2)}`)
                           .join("  to  ")}
-                      </span>
-                      <button className="ze-btn !px-2 !py-0.5 !text-[10px]" onClick={s.clearSection}>
-                        Clear points
-                      </button>
-                    </div>
+                      </div>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <button
+                          className="ze-btn !px-2 !py-0.5 !text-[10px]"
+                          onClick={s.undoSectionPoint}
+                        >
+                          Undo point
+                        </button>
+                        <button
+                          className="ze-btn !px-2 !py-0.5 !text-[10px]"
+                          onClick={s.clearSection}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}

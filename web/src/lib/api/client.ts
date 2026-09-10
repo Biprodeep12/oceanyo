@@ -13,6 +13,7 @@ import type {
   MatchupSummaryRow,
   ObservationCollection,
   CoverageResponse,
+  EventsResponse,
   InstrumentQueryResponse,
   ObservationProfile,
   ParserCapabilities,
@@ -40,19 +41,23 @@ async function getJSON<T>(url: string, signal?: AbortSignal): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-function sectionQuery(opts: {
+export interface SectionRequest {
   variable: string;
-  p0: [number, number];
-  p1: [number, number];
+  /** Two or more [lon, lat] waypoints. Two is a straight transect. */
+  path: [number, number][];
   depthRange: [number, number];
   time?: string;
   samples?: number;
-}): string {
+}
+
+function sectionQuery(opts: SectionRequest): string {
   const pt = (p: [number, number]) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`;
   const q = new URLSearchParams({
     var: opts.variable,
-    p0: pt(opts.p0),
-    p1: pt(opts.p1),
+    // Always `path`, even for two points: a second parameter form on the
+    // client would mean two ways to express the same request and two chances
+    // for the image and the geometry to disagree about the track.
+    path: opts.path.map(pt).join(";"),
     depthRange: opts.depthRange.join(","),
     samples: String(opts.samples ?? 192),
   });
@@ -84,6 +89,23 @@ export const api = {
     if (opts.platform) p.set("platform", opts.platform);
     if (opts.limit) p.set("limit", String(opts.limit));
     return getJSON<ObservationCollection>(`/api/observations?${p}`, signal);
+  },
+
+  /**
+   * Exceedance events, for replay and for the extremes layer.
+   *
+   * 404s when the catalogue carries no climatology, which is a legitimate
+   * configuration rather than an error -- callers treat it as "no events".
+   */
+  events: (
+    opts: { bbox?: BBox; variable: string; depth?: number; threshold?: number },
+    signal?: AbortSignal,
+  ) => {
+    const p = new URLSearchParams({ var: opts.variable });
+    if (opts.bbox) p.set("bbox", bboxParam(opts.bbox));
+    if (opts.depth !== undefined) p.set("depth", String(opts.depth));
+    if (opts.threshold) p.set("threshold", String(opts.threshold));
+    return getJSON<EventsResponse>(`/api/events?${p}`, signal);
   },
 
   provenance: (signal?: AbortSignal) =>
@@ -264,27 +286,14 @@ export const api = {
     return `/api/isosurface?${p}`;
   },
 
-  section: (
-    opts: {
-      variable: string;
-      p0: [number, number];
-      p1: [number, number];
-      depthRange: [number, number];
-      time?: string;
-      samples?: number;
-    },
-    signal?: AbortSignal,
-  ) => getJSON<SectionResponse>(sectionQuery(opts), signal),
+  section: (opts: SectionRequest, signal?: AbortSignal) =>
+    getJSON<SectionResponse>(sectionQuery(opts), signal),
 
-  sectionPngUrl: (opts: {
-    variable: string;
-    p0: [number, number];
-    p1: [number, number];
-    depthRange: [number, number];
-    time?: string;
-    samples?: number;
-    display?: { range?: [number, number]; log?: boolean; colormap?: string };
-  }) => {
+  sectionPngUrl: (
+    opts: SectionRequest & {
+      display?: { range?: [number, number]; log?: boolean; colormap?: string };
+    },
+  ) => {
     let url = `${sectionQuery(opts)}&fmt=png`;
     const d = opts.display;
     if (d) {

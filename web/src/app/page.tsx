@@ -36,6 +36,8 @@ export default function Page() {
   const phase = useSessionStore((st) => st.phase);
   const selection = useSessionStore((st) => st.selection);
   const drawMode = useSessionStore((st) => st.drawMode);
+  const drawShape = useSessionStore((st) => st.drawShape);
+  const selectionQuad = useSessionStore((st) => st.selectionQuad);
   const drawAnchor = useSessionStore((st) => st.drawAnchor);
   const variable = useSessionStore((st) => st.variable);
   const setPhase = useSessionStore((st) => st.setPhase);
@@ -235,7 +237,9 @@ export default function Page() {
               className="ze-btn ze-btn-primary pointer-events-auto h-auto px-5 text-[14px] md:h-[46px] md:px-6"
               title={
                 selection
-                  ? "Extrude the selected region into a 3D block"
+                  ? selectionQuad
+                    ? "Extrude the four-corner region; the block is clipped to it"
+                    : "Extrude the selected region into a 3D block"
                   : "Pick a region first: shift+drag on the map, or use Regions"
               }
             >
@@ -253,9 +257,11 @@ export default function Page() {
         {!inBlock && (drawMode || !selection) && (
           <span className="ze-overlay-text pointer-events-none text-center">
             {drawMode
-              ? drawAnchor
-                ? "tap the opposite corner"
-                : "tap one corner of the region"
+              ? drawShape === "quad"
+                ? "tap four corners, in order around the shape"
+                : drawAnchor
+                  ? "tap the opposite corner"
+                  : "tap one corner of the region"
               : touch
                 ? "tap Draw region, then two corners"
                 : "use Draw region, or shift+drag on the map"}

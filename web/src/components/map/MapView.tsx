@@ -134,27 +134,69 @@ function anomalyTemplate(variable: string, time: string, depth: number, limit: n
   return `${location.origin}${api.anomalyTileUrl(variable, time, depth, limit)}`;
 }
 
-function selectionGeoJSON(bbox: BBox | null): GeoJSON.FeatureCollection {
-  if (!bbox) return { type: "FeatureCollection", features: [] };
-  const [w, s, e, n] = bbox;
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        properties: {},
-        geometry: {
-          type: "Polygon",
-          coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
-        },
-      },
-      ...([[w, s], [e, s], [e, n], [w, n]] as [number, number][]).map((c, i) => ({
-        type: "Feature" as const,
-        properties: { handle: i },
-        geometry: { type: "Point" as const, coordinates: c },
-      })),
-    ],
-  };
+/**
+ * The selection, as a polygon plus one point per draggable corner.
+ *
+ * A quad, when there is one, is drawn INSTEAD of its bounding box rather than
+ * on top of it. Drawing both would be more informative and much worse: the
+ * rectangle is what the server slices and the quad is what the block shows, so
+ * two outlines on screen would leave the user to guess which one the data
+ * belongs to.
+ */
+function selectionGeoJSON(
+  bbox: BBox | null,
+  quad: [number, number][] | null,
+  pending: [number, number][] = [],
+): GeoJSON.FeatureCollection {
+  const corners: [number, number][] =
+    quad && quad.length === 4
+      ? quad
+      : bbox
+        ? [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[1]],
+            [bbox[2], bbox[3]],
+            [bbox[0], bbox[3]],
+          ]
+        : [];
+
+  const features: GeoJSON.Feature[] = [];
+  if (corners.length === 4) {
+    features.push({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "Polygon", coordinates: [[...corners, corners[0]]] },
+    });
+    // Handles are only draggable on a rectangle: on a quad a corner drag would
+    // have to choose between moving one point and keeping the shape convex,
+    // and a selection that silently self-intersects produces a clip nobody can
+    // reason about. Re-drawing four corners is two seconds.
+    if (!quad) {
+      corners.forEach((c, i) =>
+        features.push({
+          type: "Feature",
+          properties: { handle: i },
+          geometry: { type: "Point", coordinates: c },
+        }),
+      );
+    }
+  }
+  // Corners placed so far, while a quad is still being drawn.
+  pending.forEach((c, i) =>
+    features.push({
+      type: "Feature",
+      properties: { pending: i },
+      geometry: { type: "Point", coordinates: c },
+    }),
+  );
+  return { type: "FeatureCollection", features };
+}
+
+/** Axis-aligned bounds of a set of corners -- what the server is actually asked for. */
+function quadBounds(q: [number, number][]): BBox {
+  const xs = q.map((p) => p[0]);
+  const ys = q.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
 }
 
 export default function MapView({ visible }: { visible: boolean }) {
@@ -184,6 +226,8 @@ export default function MapView({ visible }: { visible: boolean }) {
   const showObservations = useSessionStore((s) => s.showObservations);
   const varMeta = useSessionStore(currentVariable);
   const drawMode = useSessionStore((s) => s.drawMode);
+  const drawShape = useSessionStore((s) => s.drawShape);
+  const selectionQuad = useSessionStore((s) => s.selectionQuad);
   const setDrawMode = useSessionStore((s) => s.setDrawMode);
   const setDrawAnchor = useSessionStore((s) => s.setDrawAnchor);
   const time = useSessionStore(currentTime);
@@ -350,7 +394,10 @@ export default function MapView({ visible }: { visible: boolean }) {
         },
       });
 
-      m.addSource(SEL_SOURCE, { type: "geojson", data: selectionGeoJSON(null) });
+      m.addSource(SEL_SOURCE, {
+        type: "geojson",
+        data: selectionGeoJSON(null, null),
+      });
       m.addLayer({
         id: "sel-fill",
         type: "fill",
@@ -741,8 +788,10 @@ export default function MapView({ visible }: { visible: boolean }) {
     const m = map.current;
     if (!m || !ready) return;
     const src = m.getSource(SEL_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData(selectionGeoJSON(selection) as GeoJSON.FeatureCollection);
-  }, [selection, ready]);
+    src?.setData(
+      selectionGeoJSON(selection, selectionQuad) as GeoJSON.FeatureCollection,
+    );
+  }, [selection, selectionQuad, ready]);
 
   // --- tap two corners to draw a region ---
   //
@@ -754,9 +803,34 @@ export default function MapView({ visible }: { visible: boolean }) {
     if (!m || !ready || !drawMode) return;
     m.getCanvas().style.cursor = "crosshair";
     let anchor: [number, number] | null = null;
+    const corners: [number, number][] = [];
+    const src = () => m.getSource(SEL_SOURCE) as maplibregl.GeoJSONSource | undefined;
 
     const onClick = (ev: MapMouseEvent) => {
       const point: [number, number] = [ev.lngLat.lng, ev.lngLat.lat];
+
+      if (drawShape === "quad") {
+        corners.push(point);
+        if (corners.length < 4) {
+          // Show the corners as they land. Four blind clicks and then a shape
+          // is not a drawing tool, it is a guess.
+          setDrawAnchor(point);
+          src()?.setData(
+            selectionGeoJSON(null, null, [...corners]) as GeoJSON.FeatureCollection,
+          );
+          return;
+        }
+        const quad = [...corners] as [number, number][];
+        const st = useSessionStore.getState();
+        // Order matters: setSelection clears the quad, so the bounds go first.
+        st.setSelection(quadBounds(quad));
+        st.setSelectionQuad(quad);
+        corners.length = 0;
+        setDrawAnchor(null);
+        setDrawMode(false);
+        return;
+      }
+
       if (!anchor) {
         anchor = point;
         setDrawAnchor(point);
@@ -777,7 +851,7 @@ export default function MapView({ visible }: { visible: boolean }) {
       m.off("click", onClick);
       m.getCanvas().style.cursor = "";
     };
-  }, [drawMode, ready, setSelection, setDrawMode, setDrawAnchor]);
+  }, [drawMode, drawShape, ready, setSelection, setDrawMode, setDrawAnchor]);
 
   // --- the rail owns zoom, and this is what it drives in map mode ---
   useEffect(() => {

@@ -21,6 +21,7 @@ import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
 import { openProfile } from "@/lib/api/openProfile";
 import { inTimeWindow, windowDaysFor } from "@/lib/geo/obsWindow";
+import { quadClipPlanes, quadPrismPositions } from "@/lib/geo/quadClip";
 import { currentTime, currentVariable, useSessionStore } from "@/state/useSessionStore";
 import { useDisplaySettings } from "@/state/useDisplaySettings";
 import CurrentParticles from "./CurrentParticles";
@@ -433,6 +434,28 @@ function Instruments({
 
 // ---------------------------------------------------------------- frame + axes
 
+/**
+ * Outline of a four-corner selection: the quad at the surface and at the
+ * bottom, joined at the corners.
+ *
+ * Replaces the cuboid outline rather than adding to it. Eight of the box\'s
+ * twelve edges lie outside a rotated quad, so keeping them would draw a frame
+ * around water the clip has just removed.
+ */
+function QuadFrameLines({ positions }: { positions: Float32Array }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return g;
+  }, [positions]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  return (
+    <lineSegments geometry={geo}>
+      <lineBasicMaterial color="#4fd1c5" transparent opacity={0.6} />
+    </lineSegments>
+  );
+}
+
 function BlockFrameLines({ size }: { size: [number, number, number] }) {
   const geo = useMemo(() => {
     const box = new THREE.BoxGeometry(size[0], size[1], size[2]);
@@ -474,6 +497,7 @@ function DepthSlicePlane({
 
 export default function BlockScene() {
   const selection = useSessionStore((s) => s.selection);
+  const selectionQuad = useSessionStore((s) => s.selectionQuad);
   const depthRange = useSessionStore((s) => s.depthRange);
   const exaggeration = useSessionStore((s) => s.exaggeration);
   const showVolume = useSessionStore((s) => s.showVolume);
@@ -503,7 +527,7 @@ export default function BlockScene() {
   } | null>(null);
   const [moving, setMoving] = useState(false);
   const movingTimer = useRef<number | null>(null);
-  const { camera, size } = useThree();
+  const { camera, size, gl } = useThree();
   const lastCam = useRef(new THREE.Vector3());
 
   const frame = useMemo(
@@ -517,6 +541,30 @@ export default function BlockScene() {
   // every frame while the volume is still in flight. Declared here, above
   // every early return, so the hook order never changes.
   const depths = useMemo(() => volume?.header.depths ?? [], [volume]);
+
+  // Four vertical planes that cut the fetched cuboid down to the shape the
+  // user actually drew. Null for a plain rectangle, and null for a quad that
+  // is concave or self-crossing -- four half-spaces can only describe a convex
+  // region, and clipping to the wrong one would silently delete part of the
+  // selection.
+  const clip = useMemo(
+    () =>
+      selection && frame && selectionQuad
+        ? quadClipPlanes(selectionQuad, selection, depthRange, frame)
+        : null,
+    [selectionQuad, selection, depthRange, frame],
+  );
+
+  // Global clipping rather than per-material: everything inside the block --
+  // volume, seabed, isosurface, curtain, instruments -- must obey the same
+  // boundary, and threading a plane array through six components is six
+  // chances for one of them to be forgotten and to stick out of the shape.
+  useEffect(() => {
+    gl.clippingPlanes = clip ?? [];
+    return () => {
+      gl.clippingPlanes = [];
+    };
+  }, [gl, clip]);
 
   // Advance out of the transition when the water column is actually ready.
   //
@@ -734,7 +782,13 @@ export default function BlockScene() {
       <directionalLight position={[3, 6, 4]} intensity={1.15} />
       <directionalLight position={[-4, 2, -3]} intensity={0.35} color="#7fb6ff" />
 
-      <BlockFrameLines size={frame.size} />
+      {clip && selectionQuad ? (
+        <QuadFrameLines
+          positions={quadPrismPositions(selectionQuad, selection, depthRange, frame)}
+        />
+      ) : (
+        <BlockFrameLines size={frame.size} />
+      )}
 
       {bathy && (
         <SeabedMesh

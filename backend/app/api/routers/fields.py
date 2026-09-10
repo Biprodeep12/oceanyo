@@ -199,10 +199,43 @@ def _point(raw: str, name: str) -> tuple[float, float]:
     return lon, lat
 
 
+MAX_WAYPOINTS = 12
+
+
+def _path(
+    path: str | None, p0: str | None, p1: str | None
+) -> list[tuple[float, float]]:
+    """Resolve the track from either form of the request.
+
+    `path=lon,lat;lon,lat;...` is the general one. `p0`/`p1` stay because they
+    are what the block curtain sends and what every existing link contains, and
+    a two-point path is just the shortest polyline -- there is no second code
+    path behind them.
+    """
+    if path:
+        pts = [seg for seg in path.split(";") if seg.strip()]
+        if len(pts) < 2:
+            raise HTTPException(
+                status_code=422, detail="path needs at least two lon,lat points"
+            )
+        if len(pts) > MAX_WAYPOINTS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"path is limited to {MAX_WAYPOINTS} waypoints; got {len(pts)}",
+            )
+        return [_point(seg, f"path[{i}]") for i, seg in enumerate(pts)]
+    if p0 and p1:
+        return [_point(p0, "p0"), _point(p1, "p1")]
+    raise HTTPException(status_code=422, detail="give either path, or both p0 and p1")
+
+
 @router.get("/section")
 def section(
-    p0: str = Query(..., description="lon,lat of the first endpoint"),
-    p1: str = Query(..., description="lon,lat of the second endpoint"),
+    path: str | None = Query(
+        None, description="lon,lat;lon,lat;... -- an arbitrary transect"
+    ),
+    p0: str | None = Query(None, description="lon,lat of the first endpoint"),
+    p1: str | None = Query(None, description="lon,lat of the second endpoint"),
     samples: int = Query(192, ge=8, le=512, description="points along the track"),
     maxLevels: int | None = Query(None, ge=2, le=200),
     fmt: str = Query("json", pattern="^(json|png)$"),
@@ -213,7 +246,7 @@ def section(
     q: FieldQuery = Depends(field_query),
     store: DataStore = Depends(get_store),
 ):
-    """Vertical cross-section between two points.
+    """Vertical cross-section along a transect.
 
     `fmt=png` returns the section as an image whose rows are the model's own
     depth levels, shallowest first. That is what the 3D curtain samples: the
@@ -221,13 +254,13 @@ def section(
     vertical axis and no resampling to even depth spacing is needed anywhere.
     """
     cfd = store.dataset_for(q.variable)
-    a, b = _point(p0, "p0"), _point(p1, "p1")
+    track = _path(path, p0, p1)
 
     if fmt == "png":
         cv = CANONICAL[q.variable]
         try:
             values, _ = section_array(
-                cfd, variable=q.variable, p0=a, p1=b, time=q.time,
+                cfd, variable=q.variable, path=track, time=q.time,
                 depth_range=q.depth_range, samples=samples, max_levels=maxLevels,
             )
         except ValueError as exc:
@@ -246,15 +279,15 @@ def section(
             media_type="image/png",
             headers={
                 "Cache-Control": "public, max-age=3600",
-                "ETag": f'W/"{q.cache_key("sec", p0, p1, samples)}"',
+                "ETag": f'W/"{q.cache_key("sec", track, samples)}"',
             },
         )
 
     try:
         return extract_section(
-            cfd, variable=q.variable, p0=a, p1=b, time=q.time,
+            cfd, variable=q.variable, path=track, time=q.time,
             depth_range=q.depth_range, samples=samples, max_levels=maxLevels,
-            bathymetry=store.bathymetry,
+            bathymetry=store.bathymetry, bathymetry_var=store.bathymetry_var,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

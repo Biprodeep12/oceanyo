@@ -20,6 +20,7 @@ from ...core.geometry import BBox
 from ..datastore import DataStore, get_store
 from ..obs.registry import REGISTRY
 from ..services.assessment import assess
+from ..services.events import find_events
 
 router = APIRouter(prefix="/api", tags=["assessment"])
 
@@ -85,6 +86,64 @@ def coverage(
         store, box=box, variable=var, cell_deg=cell,
         window_days=windowDays, platform=platform, limit=limit,
     )
+    with _LOCK:
+        _CACHE[key] = result
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
+    return result
+
+
+@router.get("/events")
+def events(
+    bbox: str | None = Query(None, description="w,s,e,n; defaults to the whole domain"),
+    var: str = Query("temperature"),
+    depth: float = Query(0.0, ge=0),
+    threshold: float = Query(
+        1.2816, gt=0, le=6,
+        description="standard deviations above climatology; 1.2816 is the normal 90th percentile",
+    ),
+    limit: int = Query(8, ge=1, le=40),
+    store: DataStore = Depends(get_store),
+):
+    """Runs of timesteps during which the region sat beyond a climatological threshold.
+
+    This is what "event replay" replays. See services/events.py for why the
+    response calls these exceedance events rather than marine heatwaves.
+    """
+    if store.climatology is None:
+        raise HTTPException(status_code=404, detail="no climatology in this catalog")
+    try:
+        cfd = store.dataset_for(var)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        box = BBox.parse(bbox).clamp_to(cfd.bbox()) if bbox else cfd.bbox()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if box.is_empty():
+        raise HTTPException(status_code=422, detail="bbox does not intersect the dataset")
+
+    key = hashlib.sha1(
+        "|".join([
+            store.catalog.id, "events", var, str(depth), str(threshold), str(limit),
+            ",".join(f"{v:.3f}" for v in box.as_list()),
+        ]).encode()
+    ).hexdigest()[:20]
+    with _LOCK:
+        hit = _CACHE.get(key)
+        if hit is not None:
+            _CACHE.move_to_end(key)
+            return hit
+
+    try:
+        result = find_events(
+            cfd, store.climatology, variable=var, bbox=box,
+            depth=depth, threshold=threshold, limit=limit,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     with _LOCK:
         _CACHE[key] = result
         while len(_CACHE) > _CACHE_MAX:

@@ -19,6 +19,7 @@ import type {
   BBox,
   CoverageMetric,
   CoverageResponse,
+  EventsResponse,
   HealthResponse,
   MatchupResult,
   ObservationFeature,
@@ -26,6 +27,15 @@ import type {
   RegionPreset,
   VariableSummary,
 } from "@/lib/api/types";
+
+/**
+ * Waypoints a transect may carry.
+ *
+ * The server caps this too; the number is here as well because the UI has to
+ * say what the limit is before it is hit, and a cap discovered only by a 422
+ * is a cap that reads as a bug.
+ */
+export const MAX_SECTION_POINTS = 8;
 
 /** map -> arming -> committing -> extruding -> holding -> block, and back. */
 export type TransitionPhase =
@@ -63,6 +73,20 @@ export interface SessionState {
    * just on mobile -- it is the discoverable way to do it either way.
    */
   drawMode: boolean;
+  /**
+   * What the next draw produces.
+   *
+   * "rect" is the axis-aligned bbox everything server-side speaks; "quad" adds
+   * four freely placed corners on top of it. The quad does NOT replace the
+   * bbox -- `selection` stays the quad's bounding box, so every field, volume,
+   * section and matchup request is unchanged and there is no second server
+   * path to keep in step. The quad is a CLIP, applied where the geometry is
+   * built, which is the only place it can be honoured without teaching xarray
+   * about polygons.
+   */
+  drawShape: "rect" | "quad";
+  /** Four [lon, lat] corners in order, or null for a plain rectangle. */
+  selectionQuad: [number, number][] | null;
   /** Layers sheet visibility; only consulted on a phone. */
   layersOpen: boolean;
   /** First corner tapped, while the second is still to come. */
@@ -94,6 +118,13 @@ export interface SessionState {
   coverageMetric: CoverageMetric | null;
   coverage: CoverageResponse | null;
   loadingCoverage: boolean;
+  /**
+   * Exceedance events in the record. Held in the store rather than in the
+   * popover that lists them, because the timeline draws them too -- an event
+   * the user can see on the scrubber is one they can find again after the
+   * popover closes.
+   */
+  events: EventsResponse | null;
   /** Colour saturation of the anomaly layer, in standard deviations. */
   anomalyLimit: number;
   /** Vertical cross-section curtain in block mode. */
@@ -125,6 +156,7 @@ export interface SessionState {
   setCoverageMetric: (m: CoverageMetric | null) => void;
   setCoverage: (c: CoverageResponse | null) => void;
   setLoadingCoverage: (v: boolean) => void;
+  setEvents: (e: EventsResponse | null) => void;
   setCoastline: (fc: GeoJSON.FeatureCollection | null) => void;
   setBufferedTimes: (t: string[]) => void;
   setTheme: (t: Theme) => void;
@@ -133,6 +165,8 @@ export interface SessionState {
   setTimeIndex: (i: number) => void;
   setSelection: (b: BBox | null) => void;
   setDrawMode: (v: boolean) => void;
+  setDrawShape: (v: "rect" | "quad") => void;
+  setSelectionQuad: (q: [number, number][] | null) => void;
   setLayersOpen: (v: boolean) => void;
   setDrawAnchor: (p: [number, number] | null) => void;
   setDepthRange: (r: [number, number]) => void;
@@ -143,6 +177,7 @@ export interface SessionState {
   setIsoLevel: (v: number) => void;
   setAnomalyLimit: (v: number) => void;
   addSectionPoint: (lon: number, lat: number) => void;
+  undoSectionPoint: () => void;
   clearSection: () => void;
   setColorRange: (variable: string, range: [number, number] | null) => void;
   setLogScale: (variable: string, log: boolean | null) => void;
@@ -184,6 +219,8 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   selection: null,
   drawMode: false,
+  drawShape: "rect" as const,
+  selectionQuad: null,
   drawAnchor: null,
   layersOpen: false,
   depthRange: [0, 2000],
@@ -203,6 +240,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   coverageMetric: null,
   coverage: null,
   loadingCoverage: false,
+  events: null,
   showSection: false,
   sectionPoints: [],
   opacity: 0.85,
@@ -226,6 +264,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setCoverageMetric: (coverageMetric) => set({ coverageMetric }),
   setCoverage: (coverage) => set({ coverage }),
   setLoadingCoverage: (loadingCoverage) => set({ loadingCoverage }),
+  setEvents: (events) => set({ events }),
   setCoastline: (coastline) => set({ coastline }),
   setBufferedTimes: (bufferedTimes) => set({ bufferedTimes }),
   setTheme: (theme) => {
@@ -235,8 +274,13 @@ export const useSessionStore = create<SessionState>((set) => ({
   setVariable: (variable) => set({ variable }),
   setDepth: (depth) => set({ depth }),
   setTimeIndex: (timeIndex) => set({ timeIndex }),
-  setSelection: (selection) => set({ selection }),
+  // Setting a plain rectangle clears any quad. Otherwise the block would go
+  // on clipping to a shape the map has stopped drawing -- data would appear to
+  // be missing from a region that was just selected.
+  setSelection: (selection) => set({ selection, selectionQuad: null }),
   setDrawMode: (drawMode) => set({ drawMode, drawAnchor: null }),
+  setDrawShape: (drawShape) => set({ drawShape, drawAnchor: null }),
+  setSelectionQuad: (selectionQuad) => set({ selectionQuad }),
   setDrawAnchor: (drawAnchor) => set({ drawAnchor }),
   setLayersOpen: (layersOpen) => set({ layersOpen }),
   setDepthRange: (depthRange) => set({ depthRange }),
@@ -247,13 +291,23 @@ export const useSessionStore = create<SessionState>((set) => ({
   setIsoLevel: (isoLevel) => set({ isoLevel }),
   setAnomalyLimit: (anomalyLimit) => set({ anomalyLimit }),
 
-  // A third click starts a new section rather than doing nothing: picking is
-  // the fiddly part of a transect tool, and re-picking must not need a reset.
+  // Each click EXTENDS the transect. Two points is the straight section the
+  // spec asks for in the MVP; more of them follow a channel, a coastline or a
+  // float track, which is the Level 2 "arbitrary transect" and is the same
+  // request with more waypoints rather than a second tool.
+  //
+  // At the cap a further click moves the last point instead of being ignored,
+  // so the end of a long transect can still be adjusted without clearing it.
   addSectionPoint: (lon, lat) =>
-    set((st) => ({
-      sectionPoints:
-        st.sectionPoints.length >= 2 ? [[lon, lat]] : [...st.sectionPoints, [lon, lat]],
-    })),
+    set((st) => {
+      const pts = st.sectionPoints;
+      if (pts.length >= MAX_SECTION_POINTS) {
+        return { sectionPoints: [...pts.slice(0, -1), [lon, lat]] };
+      }
+      return { sectionPoints: [...pts, [lon, lat]] };
+    }),
+  undoSectionPoint: () =>
+    set((st) => ({ sectionPoints: st.sectionPoints.slice(0, -1) })),
   clearSection: () => set({ sectionPoints: [] }),
 
   setColorRange: (variable, range) =>
@@ -284,8 +338,14 @@ export const useSessionStore = create<SessionState>((set) => ({
   setMatchup: (matchup) => set({ matchup }),
   setLoadingProfile: (loadingProfile) => set({ loadingProfile }),
 
+  // Clears the quad for the same reason setSelection does: a preset replaces
+  // the region, and a stale clip would hide part of the one just chosen.
   applyPreset: (p) =>
-    set({ selection: p.bbox as BBox, depthRange: p.depthRange as [number, number] }),
+    set({
+      selection: p.bbox as BBox,
+      depthRange: p.depthRange as [number, number],
+      selectionQuad: null,
+    }),
 
   // Returning to the map KEEPS the selection. The next thing anyone does after
   // coming back up is dive again -- with another variable, another depth range,

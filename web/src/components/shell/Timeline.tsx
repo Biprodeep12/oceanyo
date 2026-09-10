@@ -64,6 +64,7 @@ export default function Timeline() {
   const setTimeIndex = useSessionStore((s) => s.setTimeIndex);
   const toggle = useSessionStore((s) => s.toggle);
   const bufferedTimes = useSessionStore((s) => s.bufferedTimes);
+  const events = useSessionStore((s) => s.events);
 
   // Playback lives here, next to the control that starts it.
   useEffect(() => {
@@ -95,6 +96,12 @@ export default function Timeline() {
   // timeline has not buffered that far yet" -- the same reason a video
   // scrubber shows its buffer.
   const buffered = new Set(bufferedTimes);
+
+  // Exceedance events, drawn ON the scrubber rather than only listed in a
+  // popover. A record is a line of identical steps until something marks the
+  // interesting parts of it, and a user who closes the Events panel should
+  // still be able to see where the events were.
+  const span = Math.max(times.length - 1, 1);
 
   return (
     <div className="ze-panel pointer-events-auto relative flex flex-1 items-stretch justify-center gap-1 overflow-hidden pl-1 pr-2 md:flex-none">
@@ -164,6 +171,19 @@ export default function Timeline() {
             />
           ) : null,
         )}
+        {(events?.events ?? []).map((e) => (
+          <span
+            key={`${e.kind}-${e.start}`}
+            className="absolute top-0 h-full"
+            title={`${e.kind} exceedance, ${e.start.slice(0, 7)} to ${e.end.slice(0, 7)}`}
+            style={{
+              left: `${(e.startIndex / span) * 100}%`,
+              width: `${(Math.max(1, e.endIndex - e.startIndex) / span) * 100}%`,
+              background:
+                e.kind === "warm" ? "rgba(226,96,63,0.85)" : "rgba(63,140,226,0.85)",
+            }}
+          />
+        ))}
         <div
           className="absolute top-0 h-full"
           style={{ width: `${progress * 100}%`, background: "var(--ze-accent)" }}

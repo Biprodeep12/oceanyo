@@ -206,8 +206,138 @@ function TaylorDiagram() {
   );
 }
 
+/**
+ * Temperature-salinity diagram -- multi-variable comparison, in the form the
+ * field actually uses.
+ *
+ * The Level 2 list asks for "multi-variable comparison". Two profiles side by
+ * side would satisfy the words and teach nothing: the reason temperature and
+ * salinity are read TOGETHER is that a water mass is defined by the pair, and
+ * only a T-S plot shows it. A Bay of Bengal float draws its own signature --
+ * a near-vertical fresh limb near the surface from the Ganges-Brahmaputra
+ * plume, bending into the salty Arabian Sea water below -- and two separate
+ * depth profiles simply do not.
+ *
+ * Colour is depth, because a T-S plot loses the depth axis by construction and
+ * without it the curve cannot be read in the right direction.
+ *
+ * Both series come from the SAME profile, so this needs no second request and
+ * no model: it is the instrument compared with itself.
+ */
+function TSDiagram() {
+  const profile = useSessionStore((s) => s.selectedProfile);
+
+  const g = useMemo(() => {
+    const t = profile?.variables?.temperature;
+    const sa = profile?.variables?.salinity;
+    if (!profile || !t || !sa) return null;
+
+    const pts: { t: number; s: number; d: number }[] = [];
+    const n = Math.min(profile.depth.length, t.values.length, sa.values.length);
+    for (let i = 0; i < n; i++) {
+      const tv = t.values[i];
+      const sv = sa.values[i];
+      // Display QC: flags 1 and 2. This is a picture of the water column, not
+      // a statistic, and dropping "probably good" would punch holes in a curve
+      // whose SHAPE is the whole point.
+      if (tv == null || sv == null) continue;
+      if (![1, 2].includes(t.qc[i]) || ![1, 2].includes(sa.qc[i])) continue;
+      pts.push({ t: tv, s: sv, d: profile.depth[i] });
+    }
+    if (pts.length < 4) return null;
+
+    const ts = pts.map((p) => p.t);
+    const ss = pts.map((p) => p.s);
+    const tMin = Math.min(...ts);
+    const tMax = Math.max(...ts);
+    const sMin = Math.min(...ss);
+    const sMax = Math.max(...ss);
+    const dMax = Math.max(...pts.map((p) => p.d)) || 1;
+
+    const W = 326;
+    const H = 300;
+    const L = 40;
+    const T = 10;
+    const B = H - 26;
+    const padT = (tMax - tMin) * 0.06 || 0.5;
+    const padS = (sMax - sMin) * 0.06 || 0.05;
+    const x = (v: number) => L + ((v - (sMin - padS)) / (sMax - sMin + 2 * padS)) * (W - L - 10);
+    const y = (v: number) => B - ((v - (tMin - padT)) / (tMax - tMin + 2 * padT)) * (B - T);
+    return { W, H, L, T, B, x, y, pts, tMin, tMax, sMin, sMax, dMax };
+  }, [profile]);
+
+  if (!g) {
+    return (
+      <div className="mt-1 text-[10px] leading-relaxed text-[color:var(--ze-text-faint)]">
+        This profile does not carry both temperature and salinity, so there is
+        no T-S curve to draw.
+      </div>
+    );
+  }
+
+  // Shallow to deep, warm to cold. Sequential rather than diverging: depth has
+  // no meaningful midpoint to diverge about.
+  const depthColor = (d: number) => {
+    const f = Math.min(1, d / g.dMax);
+    const stops = ["#f2c14e", "#3fb98a", "#2f7f9e", "#2b3a63"];
+    const i = Math.min(stops.length - 2, Math.floor(f * (stops.length - 1)));
+    return stops[f >= 1 ? stops.length - 1 : i];
+  };
+
+  const path = g.pts
+    .map((p, i) => `${i === 0 ? "M" : "L"}${g.x(p.s).toFixed(1)},${g.y(p.t).toFixed(1)}`)
+    .join(" ");
+
+  const fmt = (v: number) => (Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2));
+
+  return (
+    <svg width={g.W} height={g.H} className="mt-1" role="img" aria-label="Temperature-salinity diagram">
+      {[0, 0.5, 1].map((f) => {
+        const t = g.tMin + (g.tMax - g.tMin) * f;
+        return (
+          <g key={`t${f}`}>
+            <line x1={g.L} x2={g.W - 10} y1={g.y(t)} y2={g.y(t)} stroke="var(--ze-grid)" strokeWidth={1} />
+            <text x={4} y={g.y(t) + 3} fill="var(--ze-chart-text)" fontSize={9} fontFamily="monospace">
+              {fmt(t)}
+            </text>
+          </g>
+        );
+      })}
+      {[0, 0.5, 1].map((f) => {
+        const sv = g.sMin + (g.sMax - g.sMin) * f;
+        return (
+          <g key={`s${f}`}>
+            <line x1={g.x(sv)} x2={g.x(sv)} y1={g.T} y2={g.B} stroke="var(--ze-grid)" strokeWidth={1} />
+            <text x={g.x(sv)} y={g.B + 12} fill="var(--ze-chart-text)" fontSize={9}
+              fontFamily="monospace" textAnchor="middle">
+              {fmt(sv)}
+            </text>
+          </g>
+        );
+      })}
+      <path d={path} fill="none" stroke="var(--ze-grid-strong)" strokeWidth={1} opacity={0.7} />
+      {g.pts.map((p, i) => (
+        <circle key={i} cx={g.x(p.s)} cy={g.y(p.t)} r={2.1} fill={depthColor(p.d)} />
+      ))}
+      <text x={4} y={g.T + 2} fill="var(--ze-chart-text)" fontSize={9}>degC</text>
+      <text x={g.W - 6} y={g.H - 4} fill="var(--ze-chart-text)" fontSize={9} textAnchor="end">
+        salinity
+      </text>
+      {/* Depth legend: without it the colour is decoration. */}
+      <g transform={`translate(${g.L}, ${g.H - 8})`}>
+        {[0, 0.33, 0.66, 1].map((f, i) => (
+          <rect key={i} x={i * 14} y={-7} width={13} height={5} fill={depthColor(f * g.dMax)} />
+        ))}
+        <text x={62} y={-2.5} fill="var(--ze-chart-label)" fontSize={8}>
+          0 to {Math.round(g.dMax)} m
+        </text>
+      </g>
+    </svg>
+  );
+}
+
 export default function MatchupPanel() {
-  const [chartTab, setChartTab] = useState<"profile" | "taylor">("profile");
+  const [chartTab, setChartTab] = useState<"profile" | "taylor" | "ts">("profile");
   const matchup = useSessionStore((s) => s.matchup);
   const profile = useSessionStore((s) => s.selectedProfile);
   const loading = useSessionStore((s) => s.loadingProfile);
@@ -303,7 +433,7 @@ export default function MatchupPanel() {
             &middot; QC {matchup.qcFlagsUsed.join(",")} only
           </div>
           <div className="mt-1.5 flex gap-1" role="tablist" aria-label="Chart">
-            {(["profile", "taylor"] as const).map((t) => (
+            {(["profile", "taylor", "ts"] as const).map((t) => (
               <button
                 key={t}
                 role="tab"
@@ -314,14 +444,22 @@ export default function MatchupPanel() {
                 title={
                   t === "profile"
                     ? "Observed profile against the model at the same depths"
-                    : "Standard deviation, correlation and centred RMSE as one point"
+                    : t === "taylor"
+                      ? "Standard deviation, correlation and centred RMSE as one point"
+                      : "Temperature against salinity, coloured by depth: the water mass"
                 }
               >
-                {t === "profile" ? "Profile" : "Taylor"}
+                {t === "profile" ? "Profile" : t === "taylor" ? "Taylor" : "T-S"}
               </button>
             ))}
           </div>
-          {chartTab === "profile" ? <ProfileChart /> : <TaylorDiagram />}
+          {chartTab === "profile" ? (
+            <ProfileChart />
+          ) : chartTab === "taylor" ? (
+            <TaylorDiagram />
+          ) : (
+            <TSDiagram />
+          )}
           <div className="mt-1 border-t border-white/10 pt-1.5 text-[9px] leading-relaxed text-[color:var(--ze-text-faint)]">
             Model interpolated onto observation depths. Statistics use QC flag 1
             (good) only; display keeps 1 and 2.

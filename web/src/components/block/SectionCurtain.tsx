@@ -1,6 +1,6 @@
 "use client";
 
-// Two-point vertical cross-section, hung inside the block as a curtain.
+// Vertical cross-section along a transect, hung inside the block as a curtain.
 //
 // A section is how a transect is actually read: not "what does this water mass
 // look like" but "what happens between here and there". Drawing it inside the
@@ -69,8 +69,12 @@ export default function SectionCurtain({
 
   const complete = points.length >= 2;
   const key = complete
-    ? `${points[0].join(",")}|${points[1].join(",")}|${variable}|${time}|${depthRange.join(",")}`
+    ? `${points.map((p) => p.join(",")).join("|")}|${variable}|${time}|${depthRange.join(",")}`
     : "";
+  // Referenced by the two fetch effects, which are keyed on `key` rather than
+  // on the array itself: `points` is a new array on every store write, so a
+  // dependency on it would refetch the section on unrelated state changes.
+  const path = points as [number, number][];
 
   // --- level table and readout ---
   useEffect(() => {
@@ -84,8 +88,7 @@ export default function SectionCurtain({
       .section(
         {
           variable,
-          p0: points[0],
-          p1: points[1],
+          path,
           depthRange,
           time,
           // Coarse on purpose: this request supplies the level table and the
@@ -114,8 +117,7 @@ export default function SectionCurtain({
     let cancelled = false;
     const url = api.sectionPngUrl({
       variable,
-      p0: points[0],
-      p1: points[1],
+      path,
       depthRange,
       time,
       samples: 256,
@@ -153,40 +155,61 @@ export default function SectionCurtain({
 
   const geometry = useMemo(() => {
     if (!section || section.depths.length < 2) return null;
-    const a = section.p0;
-    const b = section.p1;
+
+    // One column of vertices per waypoint, so a transect that turns is a
+    // folded curtain rather than a straight one that no longer follows its own
+    // track. A two-point path falls out of the same loop as the old strip.
+    const way = section.path?.length >= 2 ? section.path : [section.p0, section.p1];
+    const cols = way.length;
     const levels = section.depths;
     const n = levels.length;
 
-    const pos = new Float32Array(n * 2 * 3);
-    const uv = new Float32Array(n * 2 * 2);
+    // Horizontal texture coordinate must be distance along the track, not
+    // column index: the server samples EVENLY IN DISTANCE, so on an uneven
+    // polyline a per-column u would stretch the short legs and squash the long
+    // ones -- the image and the geometry would disagree about where the water
+    // is.
+    const vk = section.vertexKm?.length === cols ? section.vertexKm : null;
+    const total = vk ? vk[cols - 1] : 1;
+    const uAt = (i: number) =>
+      vk && total > 0 ? vk[i] / total : cols > 1 ? i / (cols - 1) : 0;
+
+    const pos = new Float32Array(n * cols * 3);
+    const uv = new Float32Array(n * cols * 2);
 
     const horiz = (lon: number, lat: number) => {
       const [x, , z] = toBlockSpace(lon, lat, 0, bbox, depthRange);
       return [x, z] as const;
     };
-    const [ax, az] = horiz(a[0], a[1]);
-    const [bx, bz] = horiz(b[0], b[1]);
+    const columns = way.map((pt) => horiz(pt[0], pt[1]));
 
     for (let j = 0; j < n; j++) {
       const yNorm = depthToY(depths, levels[j], depthRange);
-      const [wax, way, waz] = toWorld([ax, yNorm, az], frame);
-      const [wbx, , wbz] = toWorld([bx, yNorm, bz], frame);
-
-      pos.set([wax, way, waz], j * 6);
-      pos.set([wbx, way, wbz], j * 6 + 3);
-
       // Texel CENTRES, not edges: the image has n rows while the strip has
       // n-1 quads, and sampling at the edges shifts the curtain half a level.
       const v = 1 - (j + 0.5) / n;
-      uv.set([0, v], j * 4);
-      uv.set([1, v], j * 4 + 2);
+      for (let i = 0; i < cols; i++) {
+        const [cx, cz] = columns[i];
+        const [wx, wy, wz] = toWorld([cx, yNorm, cz], frame);
+        const o = (j * cols + i) * 3;
+        pos[o] = wx;
+        pos[o + 1] = wy;
+        pos[o + 2] = wz;
+        const t = (j * cols + i) * 2;
+        uv[t] = uAt(i);
+        uv[t + 1] = v;
+      }
     }
 
     const index: number[] = [];
     for (let j = 0; j < n - 1; j++) {
-      const t = j * 2;
-      index.push(t, t + 1, t + 3, t, t + 3, t + 2);
+      for (let i = 0; i < cols - 1; i++) {
+        const a = j * cols + i;
+        const b = a + 1;
+        const c = a + cols;
+        const d = c + 1;
+        index.push(a, b, d, a, d, c);
+      }
     }
 
     const geo = new THREE.BufferGeometry();

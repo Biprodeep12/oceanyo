@@ -631,7 +631,13 @@ gate for a real-data swap.
 
 ### Feature status against spec section 5
 
-All 21 MVP items are built, and the browser smoke test exercises each of them:
+All 21 MVP items are built, both "stretch within MVP" items are built, and
+thirteen of the fourteen Level 2 features are built. The browser smoke tests
+exercise them: `web/scripts/smoke.mjs` walks the demo script, and
+`web/scripts/smoke-level2.mjs` checks the Level 2 surfaces in about a minute
+(18 checks) so that verifying a legend does not mean a twenty-minute pass.
+
+The MVP items:
 
 1-4. Map mode over the Indian EEZ, axis-aligned rectangle selection with four
 draggable corner handles, animated 2D-to-3D transition, and block mode with a
@@ -690,6 +696,109 @@ Both "stretch within MVP" items are also built:
   levels and hung inside the block. The image rows *are* the model levels, so
   the curtain shares the vertical axis with the volume and lands inside it by
   construction rather than by tuning.
+
+### Level 2
+
+Fourteen features are listed at Level 2. Thirteen are built; the fourteenth is
+built as far as the data allows and says so in its own response.
+
+**Five of them are one computation.** Observation coverage, blind-spot
+detection, model-accuracy maps, the confidence layer and the data-freshness
+indicator are the same gridded pass over the observation index seen from
+different angles, so `/api/coverage` returns one GeoJSON grid carrying every
+property and the client styles it six ways. Splitting them into five endpoints
+would have walked the index five times and let the layers disagree about which
+cell a float falls in.
+
+Three judgements inside that endpoint are worth stating, because each is a
+place where the obvious implementation is wrong:
+
+- **Freshness is measured against the newest data in the catalogue, not against
+  today.** A reanalysis that ends in 2024 is complete, not two years stale, and
+  dating it against the wall clock would paint the whole map red. Nor against
+  the model's last step alone: the Argo record runs *ahead* of the model here,
+  which produced negative ages.
+- **A blind spot is ocean with nothing in it, not merely an empty cell.** The
+  bathymetry is already open, so masking land and shelf is free. Without it,
+  199 of 216 cells over the Indian Ocean were "unobserved ocean", most of them
+  India.
+- **Confidence is evidence times agreement, and both are measured.** Agreement
+  scales the RMSE by how much the field varies *between places at the same
+  depth*, computed in depth bands. Pooling the whole water column into one
+  sigma gives 9.5 °C for temperature -- almost all of it the surface-to-abyss
+  gradient, which no model is being asked to guess -- and against that every
+  cell looks certain.
+
+The rest:
+
+- **Multi-variable comparison** is a T–S diagram in the profile panel, coloured
+  by depth. Two profiles side by side would satisfy the words and teach
+  nothing: temperature and salinity are read together because a water mass is
+  defined by the pair, and only a T–S plot shows it. A Bay of Bengal float
+  draws its own signature -- a near-vertical fresh limb from the
+  Ganges–Brahmaputra plume bending into saltier Arabian Sea water below.
+- **Arbitrary-transect cross-section.** `/api/section?path=lon,lat;lon,lat;...`
+  takes up to twelve waypoints and samples them at even spacing *in distance*,
+  not per segment -- otherwise a short dogleg at the end of a long transect
+  would be drawn at twenty times the resolution of the rest. The curtain is one
+  column of vertices per waypoint, so a transect that turns is a folded surface
+  that still follows its own track.
+- **Arbitrary-quadrilateral selection.** Four freely placed corners. The server
+  still receives the bounding box -- a NetCDF subset is a rectangle in index
+  space and nothing else -- and the quad is applied where it can be applied
+  exactly, as four vertical clipping planes in the renderer. The extra water is
+  contiguous in the file and free to read; it simply is not shown. Concave or
+  self-crossing quads fall back to the rectangle, because four half-spaces can
+  only ever describe a convex region.
+- **Event replay.** `/api/events` scans every timestep against the climatology
+  and groups runs during which at least 10% of the region by area sat beyond
+  the threshold. Events are drawn on the timeline scrubber, and one click jumps
+  to the start and plays. On the real Indian Ocean catalogue it finds the
+  2023–24 basin warming, peaking April 2024 at +2.1 °C over 72% of the region.
+- **Search & navigation** is Ctrl+K, which resolves a phrase into a `Tool` call
+  from the schema in spec 5.2 and shows the resolved call *before* running it.
+  No model is involved -- see "The query layer" below.
+- **Data provenance** reads each open file's own global attributes through
+  `/api/provenance`. A provenance panel fed from a hand-written list is a
+  claim; one fed from `ds.attrs` is a receipt, and it cannot drift when the
+  catalogue is repointed.
+- **One-click report** exports the view as PNG, the matchup table and the
+  assessment grid as CSV, and the session plus the full provenance record as
+  JSON. Every export carries its provenance in the header, because a table of
+  biases that leaves without naming the model it came from is the artefact this
+  platform exists to prevent.
+- **Saved sessions** live in the URL: shareable, bookmarkable, reload-proof,
+  and readable with one `atob()` when someone asks what a link contains.
+
+**The one that is only partly possible: the Hobday marine-heatwave layer.**
+Hobday et al. (2016) define a marine heatwave as SST above the seasonally
+varying 90th percentile of a 30-year *daily* climatology, sustained for at
+least five consecutive days. Two of those three criteria cannot be evaluated
+here: the climatology carries a monthly mean and standard deviation rather than
+a percentile distribution, and a monthly model cannot resolve a five-day
+duration. So the threshold is a normal approximation to the 90th percentile
+(mean + 1.2816σ), the area test is applied, the duration test is absent, and
+the response calls the result an *exceedance event* and ships the reason with
+every payload. Naming these marine heatwaves would be the easiest way to lose
+the credibility the matchup statistics earn, in front of the one audience most
+able to check.
+
+### The query layer (spec 5.2), without a model
+
+Spec 5.2 requires a deterministic keyword fallback in case a free tier
+rate-limits mid-pitch. Here that fallback is the *default* path, and there is
+no model call at all. A free-tier model is a third-party dependency, a rate
+limit, and a prompt log containing a ministry's queries, in exchange for
+parsing "bay of bengal" -- which a lookup table does correctly, offline, in
+microseconds. The architecture the spec settles on is unchanged: everything
+typed resolves to a `Tool` object against a fixed schema before anything
+happens, the resolved call is displayed before it runs, and `query_floats` is
+answered by `/api/instruments` against the observation index, so a ranking is
+computed rather than generated. Wiring a model in later means emitting the same
+`Tool` objects; nothing downstream changes.
+
+**Level 3** is not built, and the spec says it should not be: it is listed as
+future work that "must not consume MVP hours".
 
 Reduced fidelity, stated plainly: the extrude is a camera and opacity crossfade
 rather than the pixel-registered map-to-block hand-off; the current layer's

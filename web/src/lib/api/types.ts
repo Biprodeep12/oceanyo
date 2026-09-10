@@ -190,7 +190,7 @@ export interface VolumePayload {
 export type BBox = [number, number, number, number]; // w, s, e, n
 
 /**
- * GET /api/section -- a vertical curtain between two points.
+ * GET /api/section -- a vertical curtain following a transect.
  *
  * `depths` are the model's OWN levels, not an evenly spaced axis, and rows of
  * `values` follow them shallowest-first. The client places each row by index
@@ -199,8 +199,13 @@ export type BBox = [number, number, number, number]; // w, s, e, n
 export interface SectionResponse {
   variable: string;
   units: string;
+  /** First and last waypoint, kept for readouts. */
   p0: [number, number];
   p1: [number, number];
+  /** Every waypoint, in order. Two for a straight transect. */
+  path: [number, number][];
+  /** Cumulative distance at each waypoint, so a turn can be marked. */
+  vertexKm: number[];
   lengthKm: number;
   time: string;
   shape: [number, number]; // depth, along-track
@@ -344,4 +349,47 @@ export interface InstrumentQueryResponse {
   variable: string | null;
   instruments: number;
   results: InstrumentSummary[];
+}
+
+/**
+ * GET /api/events -- runs of timesteps beyond a climatological threshold.
+ *
+ * Deliberately NOT called marine heatwaves: see `notHobday`, which the server
+ * sends with every response so the caveat travels with the numbers.
+ */
+export interface ExceedanceEvent {
+  kind: "warm" | "cool";
+  start: string;
+  end: string;
+  steps: number;
+  startIndex: number;
+  endIndex: number;
+  peakTime: string;
+  peakIndex: number;
+  peakZ: number;
+  peakAnomaly: number;
+  peakArea: number;
+  severity: number;
+}
+
+export interface EventStep {
+  time: string;
+  meanZ: number;
+  meanAnomaly: number;
+  warmFraction: number;
+  coolFraction: number;
+  kind: "warm" | "cool" | null;
+}
+
+export interface EventsResponse {
+  variable: string;
+  units: string;
+  depth: number;
+  bbox: BBox;
+  thresholdZ: number;
+  areaFraction: number;
+  steps: EventStep[];
+  events: ExceedanceEvent[];
+  method: string;
+  notHobday: string;
 }
