@@ -41,6 +41,9 @@ class VariableSummary(BaseModel):
     validRange: tuple[float, float]
     colormap: str
     log: bool = False
+    #: (vmin, vmax) the variable actually spans in THIS catalogue, dataset-wide.
+    #: Defaults to validRange when a range cannot be computed.
+    dataRange: tuple[float, float] | None = None
 
 
 class ProfileVariable(BaseModel):

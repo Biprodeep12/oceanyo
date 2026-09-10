@@ -55,6 +55,10 @@ def variables(store: DataStore = Depends(get_store)) -> list[VariableSummary]:
                 depthRange=(dr.top, dr.bottom),
                 timeRange=(times[0], times[-1]) if times else ("", ""),
                 validRange=cv.valid,
+                # What the data spans, as opposed to what would be physically
+                # valid. The colour bar defaults to this; the slider still
+                # ranges over validRange so a user can widen it.
+                dataRange=cfd.data_range(key),
                 colormap=cv.cmap,
                 log=cv.log,
             )

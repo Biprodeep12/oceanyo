@@ -44,6 +44,17 @@ function SeabedMesh({
   exaggeration: number;
   depths: number[];
 }) {
+  // The flank is derived from the chosen colour rather than picked separately.
+  // Two independent colour settings would let someone produce a seabed whose
+  // cut face is lighter than its surface, which reads as a lighting bug rather
+  // than as a choice.
+  const surfaceColor = useSessionStore((s) => s.seabedColor);
+  const flankColor = useMemo(() => {
+    const c = new THREE.Color(surfaceColor);
+    c.multiplyScalar(0.62);
+    return `#${c.getHexString()}`;
+  }, [surfaceColor]);
+
   const geometry = useMemo(() => {
     const [ny, nx] = bathy.shape;
     const frame = makeFrame(bbox, depthRange, exaggeration);
@@ -136,7 +147,7 @@ function SeabedMesh({
     <group rotation={[-Math.PI / 2, 0, 0]}>
       <mesh geometry={geometry} receiveShadow>
         <meshStandardMaterial
-          color="#5a4a3d"
+          color={surfaceColor}
           roughness={0.95}
           metalness={0.02}
           side={THREE.DoubleSide}
@@ -148,7 +159,7 @@ function SeabedMesh({
           continuous surface at a strange angle. */}
       <mesh geometry={skirt}>
         <meshStandardMaterial
-          color="#3a2f27"
+          color={flankColor}
           roughness={1}
           metalness={0}
           side={THREE.DoubleSide}

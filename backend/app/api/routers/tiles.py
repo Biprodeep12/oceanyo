@@ -108,8 +108,8 @@ def tile(
 
     png = raster.colormap_png(
         grid,
-        vmin=cv.valid[0] if vmin is None else vmin,
-        vmax=cv.valid[1] if vmax is None else vmax,
+        vmin=(cfd.data_range(variable)[0] if vmin is None else vmin),
+        vmax=(cfd.data_range(variable)[1] if vmax is None else vmax),
         cmap=cmap or cv.cmap,
         log=cv.log if log is None else log,
         flip_y=False,  # px_lat already runs north -> south

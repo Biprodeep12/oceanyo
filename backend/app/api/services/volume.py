@@ -13,7 +13,7 @@ Two decisions are load-bearing:
    normalizes uint8 to 0..1 on upload, so the shader discards `texel == 0.0`
    with no separate mask texture. Without this, land renders as ice-cold water.
 
-2. vmin/vmax come from the DATASET-WIDE valid range, never the per-request
+2. vmin/vmax come from the DATASET-WIDE data range, never the per-request
    subset. Otherwise the colour mapping shifts whenever the user moves the
    depth slider or scrubs time, and the volume appears to flicker.
 """
@@ -124,7 +124,11 @@ def build_volume(
     )
 
     meta = cfd.meta(variable)
-    vmin, vmax = meta.valid  # dataset-wide, deliberately not per-subset
+    # Dataset-wide, deliberately not per-subset -- but the DATA range rather
+    # than the validity range. Quantising temperature over -2..36 degC spent
+    # most of the 255 levels on water that does not exist in this catalogue and
+    # squeezed the entire deep ocean into the darkest few colours.
+    vmin, vmax = cfd.data_range(variable)
     q = quantize(values, dtype=dtype, vmin=vmin, vmax=vmax)
 
     snapped = cfd.nearest_time(time)

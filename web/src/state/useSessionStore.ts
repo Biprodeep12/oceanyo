@@ -127,6 +127,15 @@ export interface SessionState {
   events: EventsResponse | null;
   /** Colour saturation of the anomaly layer, in standard deviations. */
   anomalyLimit: number;
+  /**
+   * Colour of the seabed and the land it rises into, in block mode.
+   *
+   * A setting rather than a constant because the right answer depends on what
+   * is being read: earth tones look like a seabed and disappear against a warm
+   * volume; a neutral grey stays legible under every colormap; near-black is
+   * what you want for a screenshot where only the water should draw the eye.
+   */
+  seabedColor: string;
   /** Vertical cross-section curtain in block mode. */
   showSection: boolean;
   /** The two [lon, lat] endpoints; a section needs both. */
@@ -176,6 +185,7 @@ export interface SessionState {
   setOpacity: (v: number) => void;
   setIsoLevel: (v: number) => void;
   setAnomalyLimit: (v: number) => void;
+  setSeabedColor: (c: string) => void;
   addSectionPoint: (lon: number, lat: number) => void;
   undoSectionPoint: () => void;
   clearSection: () => void;
@@ -237,6 +247,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   showObservations: true,
   showAnomaly: false,
   anomalyLimit: 3,
+  seabedColor: "#5a4a3d",
   coverageMetric: null,
   coverage: null,
   loadingCoverage: false,
@@ -290,6 +301,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setOpacity: (opacity) => set({ opacity }),
   setIsoLevel: (isoLevel) => set({ isoLevel }),
   setAnomalyLimit: (anomalyLimit) => set({ anomalyLimit }),
+  setSeabedColor: (seabedColor) => set({ seabedColor }),
 
   // Each click EXTENDS the transect. Two points is the straight section the
   // spec asks for in the MVP; more of them follow a channel, a coastline or a

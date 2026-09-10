@@ -182,10 +182,12 @@ def extract_section(
             if bathymetry is not None
             else None
         ),
-        # Colour limits are the DATASET-wide range, matching the volume, so the
-        # curtain and the block are on the same scale by construction.
-        "vmin": float(cv.valid[0]),
-        "vmax": float(cv.valid[1]),
+        # Colour limits are the DATASET-wide DATA range, matching the volume,
+        # so the curtain and the block are on the same scale by construction.
+        # Dataset-wide keeps the colours stable as the slider moves; using the
+        # data rather than the validity range is what makes them legible.
+        "vmin": float(cfd.data_range(variable)[0]),
+        "vmax": float(cfd.data_range(variable)[1]),
         "dataRange": (
             [float(np.nanmin(values[finite])), float(np.nanmax(values[finite]))]
             if finite.any()

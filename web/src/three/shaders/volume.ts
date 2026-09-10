@@ -79,8 +79,24 @@ void main() {
   vec3 stepVec = dir * stepSize;
 
   for (int i = 0; i < MAX_STEPS; i++) {
-    // Local position -> texture coordinate.
-    vec3 uvw = (pos - uBoxMin) / boxSize;
+    // Local position -> normalized box coordinate: x east, y up, z north.
+    vec3 box = (pos - uBoxMin) / boxSize;
+
+    // ...and then to a TEXTURE coordinate, which is a different order.
+    //
+    // The texture is Data3DTexture(data, nx, ny, nz) with dims [depth, lat,
+    // lon], so its axes are s = longitude, t = latitude, r = depth level.
+    // The box axes are x = longitude, y = height, z = latitude. Passing the
+    // box coordinate straight in therefore indexed the DEPTH axis with
+    // latitude and the LATITUDE axis with height -- a transposed volume, which
+    // the spec names as the classic bug precisely because it looks like a
+    // rendering fault rather than an indexing one. It did: the water column
+    // rendered as a flat wall with a thin warm lid, and the top face showed a
+    // depth profile smeared across longitude.
+    //
+    // r is flipped because texture layer 0 is the shallowest model level while
+    // box y = 1 is the sea surface.
+    vec3 uvw = vec3(box.x, box.z, 1.0 - box.y);
 
     // Vertical clipping, so the depth slider can cut the column open.
     if (pos.y >= uClipY.x && pos.y <= uClipY.y) {

@@ -51,6 +51,24 @@ function NumberField({
   );
 }
 
+/**
+ * Colour-bar end labels.
+ *
+ * The range now comes from the DATA rather than from a round validity range,
+ * so it arrives as 2.453998565673828 rather than -2. Three significant figures
+ * is what a colour bar can actually resolve, and a bar labelled with sixteen
+ * digits reads as a bug in the units.
+ */
+function tick(v: number): string {
+  if (!Number.isFinite(v)) return "--";
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  if (a >= 1) return v.toFixed(2);
+  return v.toPrecision(2);
+}
+
 export default function Legend() {
   const variable = useSessionStore((s) => s.variable);
   const meta = useSessionStore(currentVariable);
@@ -153,13 +171,13 @@ export default function Legend() {
           style={{ background: cssGradient(ramp), boxShadow: "var(--ze-shadow)" }}
         />
         <div className="mt-1 flex items-baseline justify-between">
-          <span className="ze-overlay-text font-mono">{lo}</span>
+          <span className="ze-overlay-text font-mono">{tick(lo)}</span>
           <span className="ze-overlay-text">
             {unit}
             {!anomalyActive && display.log ? " · log" : ""}
             {!anomalyActive && display.customised ? " ·" : ""}
           </span>
-          <span className="ze-overlay-text font-mono">{hi}</span>
+          <span className="ze-overlay-text font-mono">{tick(hi)}</span>
         </div>
       </button>
     </div>

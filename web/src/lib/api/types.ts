@@ -14,6 +14,8 @@ export interface VariableSummary {
   validRange: [number, number];
   colormap: string;
   log: boolean;
+  /** What the variable actually spans in this catalogue, dataset-wide. */
+  dataRange?: [number, number];
 }
 
 export interface GriddedField {

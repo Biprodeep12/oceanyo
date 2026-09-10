@@ -9,7 +9,7 @@
 import { useEffect, useState } from "react";
 
 import ProvenancePanel from "@/components/panels/ProvenancePanel";
-import { Popover, Slider } from "@/components/ui";
+import { Popover, SectionLabel, Slider } from "@/components/ui";
 import {
   IconDownload,
   IconDraw,
@@ -38,6 +38,16 @@ import { useIsMobile } from "@/state/useMediaQuery";
 import { probeGpu, type GpuCaps } from "@/three/caps";
 import { viewport } from "@/lib/viewport";
 import { useSessionStore } from "@/state/useSessionStore";
+
+//: Named because a hex code in a settings panel is not a choice anyone can
+//: make. Each is here for a reason a user can act on.
+const SEABED_COLORS = [
+  { value: "#5a4a3d", label: "Sediment", note: "Earth tones: reads as a seabed" },
+  { value: "#6b6f73", label: "Neutral grey", note: "Stays legible under every colormap" },
+  { value: "#2b3138", label: "Slate", note: "Recedes, so the water carries the image" },
+  { value: "#8a7f6a", label: "Sand", note: "Light: best on the light theme" },
+  { value: "#12161a", label: "Near black", note: "For screenshots where only the water should draw the eye" },
+] as const;
 
 type PanelId =
   | "regions"
@@ -83,6 +93,8 @@ export default function IconRail() {
   const setExaggeration = useSessionStore((s) => s.setExaggeration);
   const setOpacity = useSessionStore((s) => s.setOpacity);
   const setAnomalyLimit = useSessionStore((s) => s.setAnomalyLimit);
+  const seabedColor = useSessionStore((s) => s.seabedColor);
+  const setSeabedColor = useSessionStore((s) => s.setSeabedColor);
   const theme = useSessionStore((s) => s.theme);
   const setTheme = useSessionStore((s) => s.setTheme);
   const phase = useSessionStore((s) => s.phase);
@@ -268,6 +280,39 @@ export default function IconRail() {
                 onChange={setAnomalyLimit}
                 format={(v) => `${v} sigma`}
               />
+              <SectionLabel>Seabed</SectionLabel>
+              <div className="flex flex-wrap items-center gap-1.5 px-4 pb-1 pt-1">
+                {SEABED_COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    title={c.note}
+                    aria-label={c.label}
+                    aria-pressed={seabedColor === c.value}
+                    onClick={() => setSeabedColor(c.value)}
+                    className="h-6 w-6 rounded-md border transition"
+                    style={{
+                      background: c.value,
+                      borderColor:
+                        seabedColor === c.value
+                          ? "var(--ze-accent)"
+                          : "var(--ze-line)",
+                      borderWidth: seabedColor === c.value ? 2 : 1,
+                    }}
+                  />
+                ))}
+                <input
+                  type="color"
+                  aria-label="Custom seabed colour"
+                  value={seabedColor}
+                  onChange={(e) => setSeabedColor(e.target.value)}
+                  className="h-6 w-6 cursor-pointer rounded-md border border-[color:var(--ze-line)] bg-transparent p-0"
+                />
+              </div>
+              <div className="px-4 pb-1 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
+                The cut face of the block is derived from this, darker, so the
+                seafloor and the slice through it never read as one surface.
+              </div>
+
               <div className="px-4 pt-2 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
                 The block vertical axis follows the model levels, not metres, so
                 the upper ocean fills most of the block and the abyss is

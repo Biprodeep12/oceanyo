@@ -32,8 +32,17 @@ export function useDisplaySettings(variableOverride?: string): DisplaySettings {
   const cmapOverride = useSessionStore((s) => s.colormapOverride[variable]);
 
   return useMemo(() => {
+    // Default to what the data SPANS, not to what would be physically valid.
+    // Temperature is valid from -2 to 36 degC and this catalogue spans 3.7 to
+    // 34.8; colouring over the validity range put every level below the
+    // thermocline into the darkest sixth of the ramp, so a block that should
+    // show structure showed a flat wall. validRange still bounds the slider,
+    // so widening it is one drag away.
     const range: [number, number] =
-      rangeOverride ?? (meta?.validRange as [number, number]) ?? [0, 1];
+      rangeOverride ??
+      (meta?.dataRange as [number, number]) ??
+      (meta?.validRange as [number, number]) ??
+      [0, 1];
     return {
       range,
       log: logOverride ?? meta?.log ?? false,

@@ -189,6 +189,8 @@ class CFDataset:
             if hit is not None:
                 self._resolved[key] = hit
                 log.debug("resolved %s -> %s", key, hit)
+        #: canonical -> (vmin, vmax), computed once. See data_range().
+        self._range_cache: dict[str, tuple[float, float]] = {}
 
     def canonical_vars(self) -> list[str]:
         return list(self._resolved)
@@ -260,6 +262,62 @@ class CFDataset:
         if gaps.size == 0:
             return None
         return float(np.median(gaps)) / 3600.0
+
+    def data_range(self, canonical: str) -> tuple[float, float]:
+        """The range this variable ACTUALLY spans, dataset-wide, cached.
+
+        Not the same thing as the validity range, and the difference is
+        visible: temperature is valid from -2 to 36 degC, and this Indian Ocean
+        subset spans 3.7 to 34.8. Colouring the volume over the validity range
+        squeezed the entire deep ocean -- everything below the thermocline --
+        into the bottom sixth of the ramp, so a block that should show a
+        thermocline showed a flat purple wall with an orange lid.
+
+        Still DATASET-WIDE rather than per-request, which was the original and
+        correct reason for not using subset statistics: a range that follows
+        the current slice makes the colours shift every time the depth slider
+        or the timeline moves, and the volume appears to flicker between
+        frames. This keeps that property and fixes the range.
+
+        Percentiles rather than min/max: one bad cell at 40 degC would undo the
+        whole point, and 0.5/99.5 is far enough into the tails to keep genuine
+        extremes.
+        """
+        hit = self._range_cache.get(canonical)
+        if hit is not None:
+            return hit
+
+        raw = self.raw_name(canonical)
+        da = self.ds[raw]
+        # Decimate hard. A range needs a distribution, not every cell: this is
+        # a few thousand samples spread over the whole grid, which lands within
+        # a few hundredths of the exact percentile and costs milliseconds.
+        step = {d: max(1, size // 24) for d, size in da.sizes.items()}
+        sampled = da.isel({d: slice(None, None, k) for d, k in step.items()})
+        values = np.asarray(sampled.values, dtype="float64").ravel()
+        finite = values[np.isfinite(values)]
+
+        cv = CANONICAL.get(canonical)
+        fallback = cv.valid if cv else (0.0, 1.0)
+        if finite.size < 16:
+            out = (float(fallback[0]), float(fallback[1]))
+        else:
+            lo = float(np.percentile(finite, 0.5))
+            hi = float(np.percentile(finite, 99.5))
+            if not (hi > lo):
+                out = (float(fallback[0]), float(fallback[1]))
+            else:
+                # Clamp into the validity range: a corrupt cell can drag a
+                # percentile somewhere physically impossible, and the colour
+                # bar is read as a statement about the ocean.
+                out = (
+                    max(float(fallback[0]), lo),
+                    min(float(fallback[1]), hi),
+                )
+        self._range_cache[canonical] = out
+        log.info("%s data range %.2f..%.2f (valid %.1f..%.1f)",
+                 canonical, out[0], out[1], fallback[0], fallback[1])
+        return out
 
     def bbox(self) -> BBox:
         return BBox(

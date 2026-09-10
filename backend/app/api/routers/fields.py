@@ -46,8 +46,8 @@ def slice_field(
     if fmt == "png":
         png = raster.colormap_png(
             plane,
-            vmin=cv.valid[0] if vmin is None else vmin,
-            vmax=cv.valid[1] if vmax is None else vmax,
+            vmin=(cfd.data_range(q.variable)[0] if vmin is None else vmin),
+            vmax=(cfd.data_range(q.variable)[1] if vmax is None else vmax),
             cmap=cmap or cv.cmap,
             log=cv.log if log is None else log,
         )
@@ -62,8 +62,11 @@ def slice_field(
         "lat": [float(v) for v in coords["lat"]],
         "lon": [float(v) for v in coords["lon"]],
         "shape": list(plane.shape),
-        "vmin": cv.valid[0],
-        "vmax": cv.valid[1],
+        # The range the DATA spans, not the range that would be physically
+        # valid. See CFDataset.data_range: -2..36 degC put the whole deep ocean
+        # in the bottom sixth of the ramp.
+        "vmin": cfd.data_range(q.variable)[0],
+        "vmax": cfd.data_range(q.variable)[1],
         # NaN is not valid JSON; None is.
         "values": [[None if not np.isfinite(v) else float(v) for v in row] for row in plane],
     }
@@ -267,8 +270,8 @@ def section(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         png = raster.colormap_png(
             values,
-            vmin=cv.valid[0] if vmin is None else vmin,
-            vmax=cv.valid[1] if vmax is None else vmax,
+            vmin=(cfd.data_range(q.variable)[0] if vmin is None else vmin),
+            vmax=(cfd.data_range(q.variable)[1] if vmax is None else vmax),
             cmap=cmap or cv.cmap,
             log=cv.log if log is None else log,
             # Row 0 is the shallowest level and must stay the TOP image row.
