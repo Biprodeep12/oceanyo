@@ -45,6 +45,12 @@ export default function Page() {
   // --- theme, before anything paints ---
   useEffect(() => {
     useSessionStore.getState().setTheme(initialTheme());
+    // Debug handle, alongside `__map` and `__floatPoints`. The browser test
+    // needs to select a region derived from the DATA -- where the gliders in
+    // this particular catalog actually are -- rather than a preset that only
+    // matches the synthetic layout. Driving that through the map would mean
+    // simulating a pixel drag whose meaning depends on the current zoom.
+    (window as unknown as { __store?: unknown }).__store = useSessionStore;
   }, []);
 
   // --- bootstrap the catalog ---

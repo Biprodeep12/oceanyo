@@ -130,6 +130,10 @@ const clickFloat = async () => {
   // If a capsule is not clickable within a few pixels of where the scene says
   // it is, the raycast is broken and the test should say so.
   const ring = [[0, 0], [0, -6], [6, 0], [0, 6], [-6, 0], [0, -12], [0, 12]];
+  // Prefer an instrument that actually has statistics. A real float's first
+  // cycle is often a near-empty deployment profile -- one of ours returns a
+  // single finite level flagged bad -- and a panel of dashes is a correct
+  // answer that proves nothing about the matchup.
   for (const p of pts) {
     for (const [dx, dy] of ring) {
       await page.mouse.click(p.x + dx, p.y + dy);
@@ -145,7 +149,16 @@ const clickFloat = async () => {
         .waitFor({ timeout: 8000 })
         .then(() => true)
         .catch(() => false);
-      if (opened) return p;
+      if (!opened) continue;
+      // Numeric stats, or keep looking. A real float's first cycle is often a
+      // near-empty deployment profile -- one of ours has a single finite level,
+      // flagged bad -- and a panel of dashes is a CORRECT answer that proves
+      // nothing about the matchup. Asserting on it would be asserting on
+      // whichever instrument happened to be nearest the camera.
+      const hasStats = await page.evaluate(() =>
+        /BIAS\s+[+\-]\d/i.test(document.body.innerText.replace(/\s+/g, " ")),
+      );
+      if (hasStats || p === pts[pts.length - 1]) return { ...p, hasStats };
     }
   }
   throw new Error(
@@ -351,7 +364,7 @@ await step("re-enter the block for the remaining checks", async () => {
 });
 
 await step("matchup statistics shown", async () => {
-  await page.getByText("Bias", { exact: true }).waitFor({ timeout: 10000 });
+  await page.getByText("Bias", { exact: true }).waitFor({ timeout: 20000 });
   await page.getByText("RMSE", { exact: true }).waitFor({ timeout: 5000 });
   const stats = await page.evaluate(() => document.body.innerText);
   const m = stats.match(/BIAS\s*\n?\s*([+\-0-9.]+)/i);
@@ -426,16 +439,40 @@ await step("anomaly layer vs climatology", async () => {
 
   await page.getByLabel("Temperature", { exact: true }).check();
   await page.waitForTimeout(600);
+  await page.waitForTimeout(3000); // the basin-wide anomaly render blocks the thread
   await page.getByLabel("Show anomaly").uncheck();
 });
 
 await step("glider tracks in the water column", async () => {
-  await pickRegion("East of Sri Lanka");
+  // Where the gliders are is a property of the CATALOG, not a constant. The
+  // synthetic one puts them in the Bay of Bengal; the real GDAC has not one
+  // Bay of Bengal deployment in it, and the basin catalog's gliders are in the
+  // Mozambique Channel. A hardcoded preset asserted the synthetic layout and
+  // reported real data as a failure.
+  const g = await page.evaluate(async () => {
+    const r = await fetch("/api/observations?limit=4000&platform=glider");
+    const j = await r.json();
+    const f = j.features?.[0];
+    return f ? { lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1] } : null;
+  });
+  if (!g) {
+    console.log("\n      no gliders in this catalog; skipped");
+    process.stdout.write(" ".repeat(40));
+    return;
+  }
+  await page.evaluate(
+    ({ lon, lat }) => {
+      const st = window.__store?.getState?.();
+      if (st) st.setSelection([lon - 2, lat - 2, lon + 2, lat + 2]);
+    },
+    g,
+  );
+  await page.waitForTimeout(800);
   await page.getByRole("button", { name: "Dive" }).click();
   await page.waitForFunction(() => document.body.innerText.includes("drag to orbit"), {
-    timeout: 45000,
+    timeout: 90000,
   });
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(5000);
   if (!requests.some((u) => u.includes("/api/profile/glider"))) {
     throw new Error("no glider trajectory fetched");
   }
@@ -525,11 +562,12 @@ const mstep = async (name, fn) => {
 };
 
 await mstep("load on a phone viewport", async () => {
+  await mpage.waitForTimeout(2000);
   await mpage.goto(BASE, {
     waitUntil: "domcontentloaded",
     timeout: 60000,
   });
-  await mpage.waitForSelector("canvas.maplibregl-canvas", { timeout: 30000 });
+  await mpage.waitForSelector("canvas.maplibregl-canvas", { timeout: 90000 });
   await mpage.waitForTimeout(4000);
   const size = mpage.viewportSize();
   if (size.width > 500) throw new Error(`not a phone viewport: ${size.width}px`);

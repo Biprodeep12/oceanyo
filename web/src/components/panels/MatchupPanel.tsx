@@ -283,6 +283,19 @@ export default function MatchupPanel() {
             {/* Both are now derived from the model's own grid and timestep, so
                 they arrive as awkward reals rather than the round numbers a
                 fixed default gave. */}
+            {/* Dashes with no explanation read as a broken panel. There are two
+                quite different reasons for them and the user cannot tell which:
+                a profile that carried nothing usable (real Argo floats often
+                return a near-empty deployment cycle -- one of ours has a single
+                finite level, flagged bad), or a profile with good data and no
+                model within the colocation window. */}
+            {matchup.n === 0 && (
+              <div className="mb-1 text-[color:var(--ze-warn)]">
+                {matchup.obsDepths.length === 0
+                  ? "No levels in this profile passed QC, so there is nothing to compare."
+                  : "No model data within the colocation window for this profile."}
+              </div>
+            )}
             {matchup.n} levels matched within {Math.round(matchup.radiusKm)} km /{" "}
             {matchup.windowHours >= 48
               ? `${Math.round(matchup.windowHours / 24)} d`
