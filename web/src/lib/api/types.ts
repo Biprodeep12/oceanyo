@@ -421,3 +421,31 @@ export interface QueryStatus {
   enabled: boolean;
   note: string;
 }
+
+/**
+ * POST /api/chat -- the assistant's answer, and what it is based on.
+ *
+ * Three separate fields on purpose. `reply` is generated text; `readings` are
+ * measured tool results; `actions` are what the view was told to do. The panel
+ * renders them differently because spec 5.2 requires measurement and
+ * interpretation to be visually separated.
+ *
+ * `unverified` lists numeric literals in `reply` that appear in NO reading --
+ * a number the assistant cannot have measured. Empty is the claim that every
+ * number in the answer came from a tool.
+ */
+export interface ChatReading {
+  tool: string;
+  args: Record<string, unknown>;
+  result: unknown;
+}
+
+export interface ChatResponse {
+  reply: string;
+  error: string;
+  readings: ChatReading[];
+  actions: { name: string; args: Record<string, unknown> }[];
+  unverified: string[];
+  rounds: number;
+  latencyMs: number;
+}

@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
+import AssistantPanel from "@/components/panels/AssistantPanel";
 import CommandPalette from "@/components/shell/CommandPalette";
 import HoverBubble from "@/components/shell/HoverBubble";
 import IconRail from "@/components/shell/IconRail";
@@ -48,6 +49,7 @@ export default function Page() {
   const touch = useIsTouch();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // --- theme and any shared session, before anything paints ---
   useEffect(() => {
@@ -87,6 +89,17 @@ export default function Page() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // The rail button lives in IconRail; the panel lives here, because it is a
+  // sibling of the map rather than of the rail. One shared toggle rather than
+  // duplicating the panel into the rail's own tree.
+  useEffect(() => {
+    const w = window as unknown as { __toggleAssistant?: () => void };
+    w.__toggleAssistant = () => setAssistantOpen((v) => !v);
+    return () => {
+      delete w.__toggleAssistant;
+    };
+  }, []);
+
   // --- bootstrap the catalog ---
   useEffect(() => {
     const ac = new AbortController();
@@ -118,7 +131,6 @@ export default function Page() {
       }
     })();
     return () => ac.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- observations, loaded last: small, and never gates the transition ---
@@ -129,7 +141,6 @@ export default function Page() {
       .then((c) => useSessionStore.getState().setObservations(c.features))
       .catch(() => {});
     return () => ac.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- error colouring for the instrument markers ---
@@ -283,6 +294,7 @@ export default function Page() {
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {assistantOpen && <AssistantPanel onClose={() => setAssistantOpen(false)} />}
       <SelectionTag />
       <HoverBubble />
       <StatusBar />

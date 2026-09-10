@@ -17,6 +17,7 @@ import type {
   InstrumentQueryResponse,
   ObservationProfile,
   ParserCapabilities,
+  ChatResponse,
   ProvenanceResponse,
   QueryResponse,
   QueryStatus,
@@ -125,6 +126,22 @@ export const api = {
       body: JSON.stringify({ query: phrase }),
       signal,
     }).then((r) => r.json() as Promise<QueryResponse>),
+
+  /**
+   * A conversation turn. The whole history is posted each time: the model is
+   * stateless, and a server-side session would need eviction and identity for
+   * no gain.
+   */
+  chat: (
+    messages: { role: string; content: string }[],
+    signal?: AbortSignal,
+  ) =>
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+      signal,
+    }).then((r) => r.json() as Promise<ChatResponse>),
 
   queryStatus: (signal?: AbortSignal) =>
     getJSON<QueryStatus>("/api/query/status", signal),

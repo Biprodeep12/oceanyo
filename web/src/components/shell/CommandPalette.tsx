@@ -21,7 +21,7 @@ import { api } from "@/lib/api/client";
 import { openProfile } from "@/lib/api/openProfile";
 import { describe, resolve, type Resolution, type Tool } from "@/lib/nlq/tools";
 import type { QueryResponse } from "@/lib/api/types";
-import { modeActions } from "@/lib/viewport";
+import { applyAction } from "@/lib/nlq/applyAction";
 import { useSessionStore } from "@/state/useSessionStore";
 
 interface InstrumentRow {
@@ -96,7 +96,6 @@ export default function CommandPalette({
   // the table cannot anticipate, which is exactly where spec 5.2 argues
   // natural language earns its place.
   useEffect(() => {
-    setAsking(false);
     if (!open || !nlqReady) return;
     const phrase = q.trim();
     // Short fragments are someone still typing, not a question.
@@ -117,6 +116,10 @@ export default function CommandPalette({
     return () => {
       clearTimeout(t);
       ac.abort();
+      // The pending request is being abandoned, so the waiting state it owns
+      // goes with it. Clearing this at the TOP of the effect instead wrote
+      // state during the commit React was already running.
+      setAsking(false);
     };
   }, [q, open, nlqReady, results.length]);
 
@@ -133,10 +136,13 @@ export default function CommandPalette({
     [asked],
   );
 
-  useEffect(() => {
+  // Reset where the value changes -- in the input handler -- rather than in an
+  // effect that watches it. Same result, one render instead of two.
+  const onQueryChange = (next: string) => {
+    setQ(next);
     setCursor(0);
     setAsked(null);
-  }, [q]);
+  };
 
   useEffect(() => {
     if (!asking) return;
@@ -157,58 +163,7 @@ export default function CommandPalette({
 
   const run = useCallback(
     async (tool: Tool) => {
-      const st = useSessionStore.getState();
       switch (tool.name) {
-        case "select_preset": {
-          const p = presets.find((x) => x.id === tool.args.region);
-          if (p) st.applyPreset(p);
-          onClose();
-          break;
-        }
-        case "select_region":
-          st.setSelection(tool.args.bbox);
-          st.setDepthRange(tool.args.depthRange);
-          onClose();
-          break;
-        case "set_variable":
-          st.setVariable(tool.args.variable);
-          onClose();
-          break;
-        case "set_depth":
-          st.setDepth(tool.args.depth);
-          onClose();
-          break;
-        case "set_time": {
-          const i = times.indexOf(tool.args.time);
-          if (i >= 0) st.setTimeIndex(i);
-          onClose();
-          break;
-        }
-        case "set_layer":
-          if (tool.args.layer === "anomaly") {
-            if (!st.showAnomaly) st.toggle("showAnomaly");
-          } else if (tool.args.layer === "none") {
-            st.setCoverageMetric(null);
-          } else {
-            st.setCoverageMetric(tool.args.layer);
-          }
-          onClose();
-          break;
-        case "dive":
-          modeActions.dive();
-          onClose();
-          break;
-        case "focus_platform": {
-          // The palette knows the instrument; the store knows which of its
-          // cycles are on screen. Pick the newest one that exists, so a focus
-          // never lands on a profile the map is not showing.
-          const cand = observations
-            .filter((f) => f.properties.id.split(":")[0] === tool.args.id)
-            .sort((a, b) => (a.properties.time < b.properties.time ? 1 : -1))[0];
-          if (cand) await openProfile(cand.properties.platform, cand.properties.id);
-          onClose();
-          break;
-        }
         case "query_floats": {
           // The one call the client cannot answer itself. Section 5.2: the
           // language layer never touches the data -- the ranking is computed
@@ -219,7 +174,7 @@ export default function CommandPalette({
               sortBy: tool.args.sortBy,
               order: tool.args.order,
               limit: tool.args.limit,
-              variable: st.variable,
+              variable: useSessionStore.getState().variable,
             });
             setRows(r.results as InstrumentRow[]);
             setRanking(tool.args.sortBy);
@@ -231,13 +186,23 @@ export default function CommandPalette({
           }
           break;
         }
+        default:
+          // One executor, shared with the assistant. Two copies of "what
+          // set_time means" drift the moment one of them gains a case, and the
+          // symptom is the assistant moving the display differently from the
+          // search box.
+          applyAction(tool as unknown as { name: string; args: Record<string, unknown> });
+          onClose();
       }
     },
-    [presets, times, observations, onClose],
+    [onClose],
   );
 
   // --- keyboard ---
-  const list: Resolution[] = [...results, ...modelResults];
+  const list: Resolution[] = useMemo(
+    () => [...results, ...modelResults],
+    [results, modelResults],
+  );
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -279,7 +244,7 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             placeholder="a region, a variable, a depth, or a question about the floats"
             className="w-full bg-transparent text-[13px] text-[color:var(--ze-text)] outline-none placeholder:text-[color:var(--ze-text-faint)]"
             data-testid="palette-input"
@@ -305,7 +270,7 @@ export default function CommandPalette({
                   <button
                     key={sug}
                     className="ze-btn !px-2.5 !py-1 !text-[11px]"
-                    onClick={() => setQ(sug)}
+                    onClick={() => onQueryChange(sug)}
                   >
                     {sug}
                   </button>

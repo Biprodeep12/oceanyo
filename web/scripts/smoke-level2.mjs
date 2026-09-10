@@ -199,7 +199,51 @@ const main = async () => {
     );
   }
 
-  // --- 7. the session round-trips through the URL ---
+  // --- 7. the assistant, when a model is configured ---
+  //
+  // Skipped rather than failed without a key: the feature is optional by
+  // design, and a suite that goes red because an OPTIONAL third-party service
+  // is unconfigured teaches everyone to ignore it.
+  const nlq = await store(page, () => window.__store.getState().health?.nlq ?? false);
+  if (!nlq) {
+    check("assistant answers from tool readings", true, "no model configured -- skipped");
+  } else {
+    await page.getByLabel("Assistant").click();
+    const input = page.getByTestId("assistant-input");
+    check("assistant panel opens", await input.isVisible().catch(() => false));
+
+    await input.fill("What is this dataset, exactly?");
+    await page.getByRole("button", { name: "Ask" }).click();
+    // A tool round trip through a free tier; the first of a session queues.
+    const answered = await waitFor(
+      async () => (await page.getByText("measured ·", { exact: false }).count()) > 0,
+      120000,
+    );
+    check("assistant answers from a tool reading", answered);
+
+    if (answered) {
+      // The claim this feature stands on: every number in the prose came from
+      // a reading. The server checks it; this checks the server checked.
+      const flagged = await page
+        .getByText("appear in no reading", { exact: false })
+        .count();
+      const flagged1 = await page
+        .getByText("appears in no reading", { exact: false })
+        .count();
+      check(
+        "no unverifiable numbers in the answer",
+        flagged + flagged1 === 0,
+        flagged + flagged1 ? "the reply stated a number no tool returned" : "",
+      );
+      check(
+        "measured readings are shown beside the prose",
+        (await page.getByText("generated text", { exact: false }).count()) > 0,
+      );
+    }
+    await page.getByLabel("Close assistant").click();
+  }
+
+  // --- 8. the session round-trips through the URL ---
   await store(page, () => window.__store.getState().setDepth(300));
   await page.waitForTimeout(900);
   // location.href from inside the page, NOT page.url().

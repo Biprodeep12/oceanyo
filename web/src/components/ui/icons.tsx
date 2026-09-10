@@ -196,6 +196,13 @@ export const IconLayers = (p: P) => (
 );
 
 /** Sun / moon, for the light-dark switch. */
+export const IconSparkle = (p: P) => (
+  <svg {...base} {...p}>
+    <path d="M12 3.2 13.7 8l4.8 1.7-4.8 1.7L12 16.2l-1.7-4.8L5.5 9.7 10.3 8Z" />
+    <path d="M18.4 15.1l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7Z" />
+  </svg>
+);
+
 export const IconPulse = (p: P) => (
   <svg {...base} {...p}>
     <path d="M2.5 12h4l2.2-6 3.4 12 2.4-8 1.8 2h5.2" />

@@ -22,6 +22,7 @@ import {
   IconReceipt,
   IconRegion,
   IconSettings,
+  IconSparkle,
   IconSun,
 } from "@/components/ui/icons";
 import { api } from "@/lib/api/client";
@@ -98,6 +99,7 @@ export default function IconRail() {
   const setTimeIndex = useSessionStore((s) => s.setTimeIndex);
   const domain = useSessionStore((s) => s.domain);
   const climatologyVars = useSessionStore((s) => s.health?.climatology);
+  const nlqReady = useSessionStore((s) => s.health?.nlq ?? false);
   const [eventsErr, setEventsErr] = useState<string | null>(null);
   const mobile = useIsMobile();
 
@@ -125,10 +127,15 @@ export default function IconRail() {
     if (open !== "events") return;
     if (!(climatologyVars ?? []).includes(variable)) return;
     const ac = new AbortController();
-    setEventsErr(null);
     api
       .events({ variable, bbox: domain ?? undefined }, ac.signal)
-      .then(setEvents)
+      // Clearing the error here rather than before the request keeps the last
+      // failure on screen until a new answer replaces it, and writes state
+      // once instead of twice.
+      .then((e) => {
+        setEventsErr(null);
+        setEvents(e);
+      })
       .catch((e) => {
         if ((e as Error).name !== "AbortError") setEventsErr((e as Error).message);
       });
@@ -543,6 +550,21 @@ export default function IconRail() {
         >
           <IconSettings />
         </RailButton>
+        {/* Only offered when a model is actually reachable. A button that
+            opens a panel saying "no model configured" is a worse answer than
+            no button. */}
+        {nlqReady && (
+          <RailButton
+            label="Assistant"
+            onClick={() => {
+              (window as unknown as { __toggleAssistant?: () => void })
+                .__toggleAssistant?.();
+              setOpen(null);
+            }}
+          >
+            <IconSparkle />
+          </RailButton>
+        )}
         <RailButton
           label="Events"
           active={open === "events"}
