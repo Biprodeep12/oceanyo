@@ -40,6 +40,13 @@ services:
       # policy is a container too, and there the API would exit and stay
       # exited.
       OCEANUPS_SUPERVISED: "1"
+    env_file:
+      # The optional natural-language layer's key, kept out of this file and
+      # out of the image (.dockerignore excludes .env; compose reads it on the
+      # HOST and injects it here). Absent is fine -- the command palette falls
+      # back to its own lookup table, which is the behaviour spec 5.2 requires.
+      - path: .env
+        required: false
     volumes:
       - ./data:/app/data:ro
       - ./config:/app/config:ro
