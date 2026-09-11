@@ -24,16 +24,33 @@ def observations(
 
     Deliberately lightweight: this loads no profile data, only the index built
     at startup, so it can be fetched last without gating the block transition.
+
+    `count` is what came back and `total` is what matched, which differ when a
+    region holds more profiles than `limit`. Gliders make that ordinary rather
+    than exotic: eight EGO deployments in the Mozambique Channel are 2757 dives
+    in a box a fifth of a degree across, against 800 Argo profiles spread over
+    the whole basin.
     """
     try:
         box = BBox.parse(bbox) if bbox else None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    refs = store.observation_refs(bbox=box, platform=platform, t0=t0, t1=t1)[:limit]
+    refs = store.observation_refs(bbox=box, platform=platform, t0=t0, t1=t1)
+    total = len(refs)
+    if total > limit:
+        # A PREFIX is not a sample. The index is in parse order -- every Argo
+        # float, then every glider -- so `refs[:limit]` drops one platform
+        # entirely before it touches the other, and the map loses the gliders
+        # while reporting nothing. A stride keeps the mix and the time span,
+        # and `total` below lets the caller say what it is not showing.
+        step = total / limit
+        refs = [refs[int(i * step)] for i in range(limit)]
     return {
         "type": "FeatureCollection",
         "count": len(refs),
+        "total": total,
+        "truncated": total > len(refs),
         "features": [
             {
                 "type": "Feature",

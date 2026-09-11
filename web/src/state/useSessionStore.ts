@@ -156,6 +156,8 @@ export interface SessionState {
 
   // --- observations ---
   observations: ObservationFeature[];
+  /** How many the index held, when that exceeds what was fetched. */
+  observationsTotal: number;
   errorById: Record<string, number>; // id -> |bias|, colours the instruments
   selectedProfile: ObservationProfile | null;
   matchup: MatchupResult | null;
@@ -212,7 +214,7 @@ export interface SessionState {
       | "showSection"
       | "playing",
   ) => void;
-  setObservations: (f: ObservationFeature[]) => void;
+  setObservations: (f: ObservationFeature[], total?: number) => void;
   setErrorById: (m: Record<string, number>) => void;
   setSelectedProfile: (p: ObservationProfile | null) => void;
   setMatchup: (m: MatchupResult | null) => void;
@@ -270,6 +272,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   colormapOverride: {},
 
   observations: [],
+  observationsTotal: 0,
   errorById: {},
   selectedProfile: null,
   matchup: null,
@@ -355,7 +358,8 @@ export const useSessionStore = create<SessionState>((set) => ({
       return { colormapOverride: next };
     }),
   toggle: (key) => set((s) => ({ [key]: !s[key] }) as Partial<SessionState>),
-  setObservations: (observations) => set({ observations }),
+  setObservations: (observations, total) =>
+    set({ observations, observationsTotal: total ?? observations.length }),
   setErrorById: (errorById) => set({ errorById }),
   setSelectedProfile: (selectedProfile) => set({ selectedProfile }),
   setMatchup: (matchup) => set({ matchup }),

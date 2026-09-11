@@ -199,6 +199,106 @@ const main = async () => {
     );
   }
 
+  // --- 6b. gliders: MVP item 12, never once verified ---
+  //
+  // This existed as geometry and a sawtooth reconstruction from the first day
+  // and drew nothing for the whole of that time, because the only deployment
+  // in the catalogue ran fifteen months after the model record ended. Nothing
+  // caught it: no test asserted that a glider drew, and a feature nobody
+  // asserts on is a feature nobody knows is broken.
+  //
+  // Skipped, not failed, on a catalogue with no gliders in range -- the Bay of
+  // Bengal ones have none anywhere in the GDAC and never will.
+  const gliderRegion = await store(page, () =>
+    (window.__store.getState().presets ?? []).find((p) => p.id === "mozambique_channel"),
+  );
+  if (!gliderRegion) {
+    check("gliders draw in the block", true, "no glider region in this catalogue -- skipped");
+  } else {
+    await store(page, (r) => {
+      const st = window.__store.getState();
+      st.setSelection(r.bbox);
+      st.setSelectionQuad(null);
+      st.setDepthRange(r.depthRange);
+    }, gliderRegion);
+
+    // Pick the step that actually has gliders rather than assuming one. The
+    // deployments cover ten of the model's twelve months, not all twelve.
+    const step = await store(page, () => {
+      const st = window.__store.getState();
+      const days = 15;
+      for (let i = 0; i < st.times.length; i++) {
+        const c = Date.parse(st.times[i]);
+        const hit = st.observations.some(
+          (f) =>
+            f.properties.platform === "glider" &&
+            Math.abs(Date.parse(f.properties.time) - c) <= days * 86400000,
+        );
+        if (hit) return i;
+      }
+      return -1;
+    });
+    check("a model step has contemporaneous glider data", step >= 0);
+
+    if (step >= 0) {
+      await store(page, (i) => window.__store.getState().setTimeIndex(i), step);
+      await page.getByRole("button", { name: "Dive" }).click();
+      const dove = await waitFor(
+        async () =>
+          store(page, () => ["block", "holding"].includes(window.__store.getState().phase)),
+        120000,
+      );
+      const drew = await waitFor(
+        async () => store(page, () => (window.__gliderTracks?.() ?? []).length > 0),
+        60000,
+      );
+      const tracks = await store(page, () => window.__gliderTracks?.() ?? []);
+      check(
+        "gliders draw in the block",
+        dove && drew,
+        tracks.length
+          ? tracks.map((t) => `${t.deployment}:${t.points}pts`).join(" ")
+          : "no track built",
+      );
+
+      // The whole point of getting them in range: they can now be compared.
+      const id = await store(page, () => {
+        const st = window.__store.getState();
+        const f = st.observations.find((o) => o.properties.platform === "glider");
+        return f?.properties.id ?? null;
+      });
+      if (id) {
+        const m = await page.evaluate(async (pid) => {
+          const r = await fetch(
+            `/api/matchup?platform=glider&id=${encodeURIComponent(pid)}&variable=temperature`,
+          );
+          return r.ok ? r.json() : null;
+        }, id);
+        check(
+          "a glider profile scores against the model",
+          Boolean(m && m.n > 0 && m.bias !== null),
+          m ? `${id} n=${m.n} bias=${m.bias?.toFixed(3)} rmse=${m.rmse?.toFixed(3)}` : "no matchup",
+        );
+      }
+
+      await page.getByRole("button", { name: "Back to map" }).click();
+      await waitFor(async () =>
+        store(page, () => window.__store.getState().phase === "map"),
+      );
+      // Put the quad back; step 8 below asserts the link restores it.
+      await store(page, () => {
+        const st = window.__store.getState();
+        const [w, s, e, n] = st.selection ?? [86, 9, 90, 13];
+        st.setSelectionQuad([
+          [w, s],
+          [e, s],
+          [e, n],
+          [w, n],
+        ]);
+      });
+    }
+  }
+
   // --- 7. the assistant, when a model is configured ---
   //
   // Skipped rather than failed without a key: the feature is optional by

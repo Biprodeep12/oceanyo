@@ -305,6 +305,12 @@ function Instruments({
 
   // Gliders are drawn by GliderTracks: they fly a sawtooth, so a drifting
   // capsule at a single parking depth would misrepresent them.
+  //
+  // Depend on `shown`, not on `observations`. This read the time-windowed list
+  // but listed the unwindowed one, so scrubbing the timeline left whichever
+  // deployments were in the box on the first frame -- invisible while the only
+  // glider in the catalogue sat outside the model record entirely, and wrong
+  // the moment there were eight of them across ten months.
   const gliders = useMemo(
     () =>
       shown.filter((f) => {
@@ -314,7 +320,7 @@ function Instruments({
           lon >= bbox[0] && lon <= bbox[2] && lat >= bbox[1] && lat <= bbox[3]
         );
       }),
-    [observations, bbox],
+    [shown, bbox],
   );
 
   const frame = useMemo(

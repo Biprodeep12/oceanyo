@@ -66,6 +66,36 @@ observations:
   - platform: argo
     parser: argo_netcdf
     uri: data/real/argo
+
+  # ---------------------------------------------------------------------
+  # Gliders, and the reason there are eight of them
+  # ---------------------------------------------------------------------
+  #
+  # This held one deployment, sea006_20250918 -- September 2025, against a
+  # model that ends in June 2024. It was picked on position alone, because
+  # `fetch_glider` had no time criterion at all, and so not one of its 192
+  # dives could be compared to a single model timestep. MVP item 12 shipped
+  # as a mesh with nothing to draw.
+  #
+  # The fetch now takes the window from the model's OWN time axis, and picks
+  # deployments greedily for month coverage rather than by date -- otherwise
+  # `want=8` returns eight consecutive sorties of one glider in one fortnight.
+  # What that selects here:
+  #
+  #   sea023  2023-07-11 .. 07-24     sea027  2023-12-26 .. 2024-01-09
+  #   sea083  2023-07-28 .. 08-09     sea027  2024-03-16 .. 04-02
+  #   sea083  2023-08-30 .. 08-31     sea027  2024-05-04 .. 05-15
+  #   sea083  2023-09-11 .. 09-12     sea083  2023-10-13 .. 11-01
+  #
+  # Three platforms, 2757 dive/climb segments, ten of the model's twelve
+  # months, deepest 1281 m. They colocate: sea027:50 scores bias -0.033,
+  # RMSE 0.605, r 0.998 over 85 levels from 3.8 m to 1260 m.
+  #
+  # They are all in the MOZAMBIQUE CHANNEL, around 12.8 S 45.3 E, because
+  # that is where the EGO GDAC has Indian Ocean gliders -- there are none in
+  # the Bay of Bengal at any time. Use the `mozambique_channel` preset. The
+  # Bay of Bengal catalogs do not cover that longitude, so /api/presets hides
+  # the preset for them rather than offering a region with no model behind it.
   - platform: glider
     parser: glider_ego
     uri: data/real/glider

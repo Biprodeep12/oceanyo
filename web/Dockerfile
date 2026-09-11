@@ -4,7 +4,12 @@ FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 COPY web/package.json ./web/package.json
-RUN npm ci --workspaces --include-workspace-root || npm install
+# `mkdir -p` because npm workspaces HOIST: with no conflicting versions every
+# package lands in /app/node_modules and web/node_modules is never created, so
+# the COPY below fails the build with "not found". It is a real directory in
+# some dependency trees (a version conflict forces a local copy) and absent in
+# others, and the Dockerfile must not depend on which.
+RUN (npm ci --workspaces --include-workspace-root || npm install) \n    && mkdir -p /app/web/node_modules
 
 FROM node:22-alpine AS build
 WORKDIR /app

@@ -95,13 +95,36 @@ def metadata(variable: str, store: DataStore = Depends(get_store)) -> GriddedFie
 
 @router.get("/presets")
 def presets() -> dict:
-    """Named regions. The natural-language layer and the UI resolve to these,
-    so a demo lands on exactly the same block every time."""
+    """Named regions, filtered to the model actually loaded.
+
+    The presets file is shared by every catalog, so it necessarily lists
+    regions some of them do not cover: the Mozambique Channel is nowhere near
+    `catalog.hycom.yaml`'s Bay of Bengal box, and selecting it there yields an
+    empty block with no explanation. Offering a region the model cannot answer
+    is worse than offering fewer regions -- and this list feeds the region
+    picker, the command palette AND the assistant's tool schema, so filtering
+    once here fixes all three.
+    """
     path = REPO_ROOT / "config" / "regions.presets.json"
     if not path.exists():
         return {"presets": []}
     with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+        raw = json.load(fh)
+
+    cfd = get_store().model
+    if cfd is None:
+        return raw
+
+    box = cfd.bbox()
+    west, south, east, north = box.west, box.south, box.east, box.north
+    kept, dropped = [], []
+    for item in raw.get("presets", []):
+        w, s_, e, n = item["bbox"]
+        if w >= east or e <= west or s_ >= north or n <= south:
+            dropped.append(item["id"])
+            continue
+        kept.append(item)
+    return {"presets": kept, "outsideModel": dropped}
 
 
 @router.get("/colormaps")

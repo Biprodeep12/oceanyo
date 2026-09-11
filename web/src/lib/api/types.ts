@@ -130,6 +130,9 @@ export interface ObservationFeature {
 export interface ObservationCollection {
   type: "FeatureCollection";
   count: number;
+  /** How many matched before `limit` was applied. */
+  total?: number;
+  truncated?: boolean;
   features: ObservationFeature[];
 }
 

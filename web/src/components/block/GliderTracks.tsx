@@ -134,6 +134,18 @@ export default function GliderTracks({
 
   useEffect(() => () => geometry.dispose(), [geometry]);
 
+  // MVP item 12 had a mesh, a sawtooth reconstruction and no data in range for
+  // the whole of its existence, so nothing ever asserted that it drew. Expose
+  // what was actually built, the same way the floats expose `__floatPoints`.
+  useEffect(() => {
+    const w = window as unknown as { __gliderTracks?: () => unknown };
+    w.__gliderTracks = () =>
+      tracks.map((t) => ({ deployment: t.deployment, points: t.points.length }));
+    return () => {
+      delete w.__gliderTracks;
+    };
+  }, [tracks]);
+
   // Built as real THREE.Line objects rather than an intrinsic <line>: in JSX
   // that name resolves to the SVG element, not the three one.
   const lines = useMemo(

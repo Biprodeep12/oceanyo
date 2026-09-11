@@ -78,13 +78,46 @@ def verify(
     raise typer.Exit(code=0 if ok else 1)
 
 
+def _model_window(catalog: Path | None) -> tuple[str | None, str | None]:
+    """First and last day of the configured model's time axis, as ISO days."""
+    try:
+        from ..core.catalog import Catalog
+        from ..core.cf_adapter import CFDataset
+
+        entry = Catalog.load(catalog)
+        cfd = CFDataset.open(
+            entry.model.uri,
+            source=entry.source,
+            synthetic=entry.synthetic,
+            var_map=entry.model.variables,
+            engine=entry.model.engine,
+            load=False,
+        )
+        steps = cfd.time_strings()
+        cfd.ds.close()
+        if not steps:
+            return None, None
+        return steps[0][:10], steps[-1][:10]
+    except Exception as exc:  # a missing model must not block the Argo fetch
+        logging.getLogger("fetch-real").warning("cannot read the model time axis: %s", exc)
+        return None, None
+
+
 @app.command("fetch-real")
 def fetch_real(
     out: Path = typer.Option(None, help="output directory (default data/real/argo)"),
     want: int = typer.Option(6, help="how many floats to keep"),
     scan: int = typer.Option(40, help="how many floats to examine"),
     dac: str = typer.Option("incois", help="Argo DAC to draw from"),
-    gliders: bool = typer.Option(True, help="also fetch an EGO glider deployment"),
+    gliders: int = typer.Option(
+        3,
+        help="how many EGO glider deployments to fetch (0 to skip)",
+    ),
+    catalog: Path = typer.Option(
+        None,
+        help="catalog whose model time axis bounds the glider search "
+        "(default: the configured one)",
+    ),
     woa: bool = typer.Option(
         False,
         help="also fetch NOAA WOA23 and build a real climatology (~160 MB)",
@@ -143,22 +176,45 @@ def fetch_real(
         raise typer.Exit(code=0 if failed == 0 else 1)
 
     # --- gliders -------------------------------------------------------
+    #
+    # A glider only earns its place in this platform if it can be COMPARED to
+    # the model, and that needs the two to overlap in time. So the search
+    # window is read from the model's own axis rather than picked: point this
+    # at a different catalog and the deployments it fetches move with it.
     from .fetch_real import fetch_glider
 
+    since, until = _model_window(catalog)
+    if since:
+        log.info("")
+        log.info("model record runs %s .. %s", since, until)
+    else:
+        log.warning("")
+        log.warning("no model time axis available; selecting gliders on position alone")
+
     gdir = outdir.parent / "glider"
-    paths, summary = fetch_glider(gdir, want=1)
+    paths, summary = fetch_glider(gdir, since=since, until=until, want=gliders)
     log.info("")
     log.info("REAL GLIDERS: EGO trajectory index")
     log.info("  deployments in the index      %d", summary["deployments_in_index"])
     log.info("  candidates in the Indian Ocean %d", summary["candidates_in_bbox"])
+    if since:
+        log.info("  ruled out by the model window %d", summary["rejected_window"])
     for bad in summary["rejected_position"]:
         # Worth printing: the index said one place, the file says another.
         log.warning(
             "  index position wrong for %s: index %s, file lat %.2f..%.2f lon %.2f..%.2f",
             bad["file"], bad["index"], *bad["actual"],
         )
+    for bad in summary["rejected_time"]:
+        log.warning(
+            "  index dates wrong for %s: index %s, file %s",
+            bad["file"], bad["index"], bad["actual"],
+        )
     for name, size in summary["skipped_too_large"]:
         log.info("  skipped %s (%.1f MB)", name, size / 1e6)
+    for good in summary["kept"]:
+        days = good.get("days")
+        log.info("  keeping %s  %s", good["file"], f"{days[0]} .. {days[1]}" if days else "")
 
     if not paths:
         log.warning("  no deployment downloaded; the glider check is skipped")

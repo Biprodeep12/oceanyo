@@ -3,28 +3,91 @@
     {
       "id": "bay_of_bengal",
       "label": "Bay of Bengal",
-      "bbox": [85.0, 12.0, 92.0, 19.0],
-      "depthRange": [0, 2000],
+      "bbox": [
+        85.0,
+        12.0,
+        92.0,
+        19.0
+      ],
+      "depthRange": [
+        0,
+        2000
+      ],
       "note": "Primary demo region. Freshwater cap and warm-core eddy both fall inside."
     },
     {
       "id": "andaman_sea",
       "label": "Andaman Sea",
-      "bbox": [92.0, 8.0, 95.0, 16.0],
-      "depthRange": [0, 1500]
+      "bbox": [
+        92.0,
+        8.0,
+        95.0,
+        16.0
+      ],
+      "depthRange": [
+        0,
+        1500
+      ],
+      "note": "Model data but no float or glider ever, in either real catalogue. Useful as a deliberate blind spot; it can never reach the comparison panel."
     },
     {
       "id": "central_bob",
       "label": "Central Bay of Bengal",
-      "bbox": [86.0, 8.0, 92.0, 14.0],
-      "depthRange": [0, 2000],
+      "bbox": [
+        86.0,
+        8.0,
+        92.0,
+        14.0
+      ],
+      "depthRange": [
+        0,
+        2000
+      ],
       "note": "Deep water throughout - the cleanest volume render."
     },
     {
       "id": "sri_lanka_east",
       "label": "East of Sri Lanka",
-      "bbox": [81.0, 5.5, 87.0, 11.0],
-      "depthRange": [0, 2000]
+      "bbox": [
+        81.0,
+        5.5,
+        87.0,
+        11.0
+      ],
+      "depthRange": [
+        0,
+        2000
+      ]
+    },
+    {
+      "id": "mozambique_channel",
+      "label": "Mozambique Channel",
+      "bbox": [
+        44.5,
+        -14.0,
+        47.0,
+        -11.5
+      ],
+      "depthRange": [
+        0,
+        1500
+      ],
+      "note": "The only place in this ocean with glider data. Eight EGO deployments, 2757 dives, ten of the model's twelve months."
+    },
+    {
+      "id": "arabian_sea",
+      "label": "Arabian Sea",
+      "bbox": [
+        60.0,
+        8.0,
+        72.0,
+        22.0
+      ],
+      "depthRange": [
+        0,
+        2000
+      ],
+      "note": "Where the monsoon reversal in the surface currents is clearest."
     }
   ]
 }

@@ -161,6 +161,18 @@ def fetch_argo(
 #     1115 deployments fall in the wider Indian Ocean, almost all of them in
 #     the Mozambique Channel. The spec warned that Indian-Ocean coverage was
 #     sparse; this is how sparse.
+#
+#  3. Position is not the only axis a deployment has to match. This selected
+#     purely on WHERE a glider was and never on WHEN, and so it landed
+#     sea006_20250918 -- September 2025, fifteen months past the end of a model
+#     record that stops in June 2024. Every glider profile therefore missed
+#     every model timestep, and MVP item 12 could not be demonstrated on real
+#     data at all. Pass `since`/`until` from the model's own time axis.
+#
+#     The index dates are no more trustworthy than the index positions:
+#     sea083_20230923 advertises a coverage start of 2018-07-18. So the index
+#     is a candidate list and the FILE is the authority, for time exactly as
+#     for position.
 
 GLIDER_ROOT_FTP = "ftp://ftp.ifremer.fr/ifremer/glider/v2"
 GLIDER_TRAJ_INDEX = f"{GLIDER_ROOT_FTP}/glider_traj_index.txt"
@@ -187,36 +199,155 @@ def _float_or_none(text: str | None) -> float | None:
         return None
 
 
+_DIR_DATE = re.compile(r"_(\d{4})(\d{2})(\d{2})/")
+
+
+def _index_day(text: str | None) -> str | None:
+    """`20231013`, `2023-10-13`, `2023-10-13T04:00:00Z` -> `2023-10-13`."""
+    m = re.match(r"(\d{4})-?(\d{2})-?(\d{2})", (text or "").strip())
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+
+
+def _deployment_span(row: dict) -> tuple[str, str] | None:
+    """The index's claim about when a deployment ran, as ISO days.
+
+    Falls back to the date in the deployment directory name, which is the one
+    piece of index metadata that has never been observed to be wrong.
+    """
+    start = _index_day(row.get("time_coverage_start"))
+    end = _index_day(row.get("time_coverage_end"))
+    named = _DIR_DATE.search(row.get("file") or "")
+    if named:
+        named_day = f"{named.group(1)}-{named.group(2)}-{named.group(3)}"
+        # The directory is named for the deployment; a coverage start years
+        # earlier is metadata rot, not a five-year mission.
+        if start is None or start < named_day:
+            start = named_day
+    if start is None:
+        return None
+    return start, max(end or start, start)
+
+
+def _file_span(ds) -> tuple[str, str] | None:
+    """When the deployment ACTUALLY ran, read from its own JULD axis."""
+    import numpy as np
+
+    for name in ("JULD", "TIME", "time"):
+        if name not in ds.variables:
+            continue
+        var = ds[name]
+        vals = np.asarray(var.values, dtype="float64")
+        vals = vals[np.isfinite(vals)]
+        if vals.size == 0:
+            return None
+        units = var.attrs.get("units")
+        if not units:
+            return None
+        import cftime
+
+        lo = cftime.num2date(float(vals.min()), units, calendar="standard")
+        hi = cftime.num2date(float(vals.max()), units, calendar="standard")
+        return (lo.strftime("%Y-%m-%d"), hi.strftime("%Y-%m-%d"))
+    return None
+
+
+def _months(span: tuple[str, str]) -> set[str]:
+    """Every `YYYY-MM` a deployment touches."""
+    start, end = span
+    out: set[str] = set()
+    y, m = int(start[:4]), int(start[5:7])
+    ylast, mlast = int(end[:4]), int(end[5:7])
+    while (y, m) <= (ylast, mlast) and len(out) < 240:
+        out.add(f"{y:04d}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _spread_over_months(candidates: list[dict]) -> list[dict]:
+    """Reorder so the first N cover as many distinct months as N allows.
+
+    A plain greedy set cover, tie-broken by date so the result is stable and
+    reads chronologically when everything is equally novel.
+    """
+    remaining = sorted(candidates, key=lambda r: _deployment_span(r) or ("", ""))
+    covered: set[str] = set()
+    ordered: list[dict] = []
+    while remaining:
+        def novelty(row: dict) -> int:
+            span = _deployment_span(row)
+            return len(_months(span) - covered) if span else 0
+
+        best = max(remaining, key=novelty)
+        if novelty(best) == 0:  # nothing new left to cover; keep the rest as-is
+            ordered.extend(remaining)
+            break
+        remaining.remove(best)
+        ordered.append(best)
+        span = _deployment_span(best)
+        if span:
+            covered |= _months(span)
+    return ordered
+
+
 def fetch_glider(
     outdir: Path,
     *,
     bbox: tuple[float, float, float, float] = (20.0, -45.0, 120.0, 30.0),
+    since: str | None = None,
+    until: str | None = None,
     want: int = 1,
     max_bytes: int = MAX_GLIDER_BYTES,
 ) -> tuple[list[Path], dict]:
-    """Download EGO deployments whose FILE position falls inside `bbox`.
+    """Download EGO deployments whose FILE position and time both fit.
+
+    `since`/`until` are ISO days bounding the model record. A deployment is a
+    candidate if the index says it overlaps them, and is kept only if the file
+    itself agrees -- see note 3 above. Omit them to select on position alone,
+    which is what this did before and is almost never what you want.
 
     Returns the kept paths plus a summary of what the index claimed, so the
     caller can report the difference between the two honestly.
     """
     outdir.mkdir(parents=True, exist_ok=True)
     west, south, east, north = bbox
+    lo = _index_day(since)
+    hi = _index_day(until)
     entries = glider_index()
 
     candidates: list[dict] = []
+    out_of_window = 0
     for row in entries:
         lat = _float_or_none(row.get("deployment_start_latitude"))
         lon = _float_or_none(row.get("deployment_start_longitude"))
         if lat is None or lon is None:
             continue
-        if west <= lon <= east and south <= lat <= north:
-            candidates.append({**row, "_lat": lat, "_lon": lon})
+        if not (west <= lon <= east and south <= lat <= north):
+            continue
+        if lo or hi:
+            span = _deployment_span(row)
+            if span is None:
+                continue
+            if (hi and span[0] > hi) or (lo and span[1] < lo):
+                out_of_window += 1
+                continue
+        candidates.append({**row, "_lat": lat, "_lon": lon})
+
+    # Order so that each successive deployment covers a month the ones before
+    # it did not. Sorting by date instead would hand back `want` consecutive
+    # sorties of the same glider in the same fortnight -- eight files, one
+    # model step. This gives one file per step until the steps run out, which
+    # is what makes the timeline worth scrubbing.
+    if lo or hi:
+        candidates = _spread_over_months(candidates)
 
     summary = {
         "deployments_in_index": len(entries),
         "candidates_in_bbox": len(candidates),
+        "window": [lo, hi],
+        "rejected_window": out_of_window,
         "kept": [],
         "rejected_position": [],
+        "rejected_time": [],
         "skipped_too_large": [],
     }
 
@@ -262,6 +393,7 @@ def fetch_glider(
                     float(np.nanmin(lat[good])), float(np.nanmax(lat[good])),
                     float(np.nanmin(lon[good])), float(np.nanmax(lon[good])),
                 )
+                span = _file_span(ds)
         except Exception as exc:
             log.warning("skip %s: unreadable (%s)", name, exc)
             dest.unlink(missing_ok=True)
@@ -275,11 +407,20 @@ def fetch_glider(
             dest.unlink(missing_ok=True)
             continue
 
-        summary["kept"].append({"file": name, "actual": real})
+        missed = span is not None and ((hi and span[0] > hi) or (lo and span[1] < lo))
+        if (lo or hi) and missed:
+            summary["rejected_time"].append(
+                {"file": name, "index": _deployment_span(row), "actual": span}
+            )
+            dest.unlink(missing_ok=True)
+            continue
+
+        summary["kept"].append({"file": name, "actual": real, "days": span})
         kept.append(dest)
         log.info(
-            "keep %s: lat %.2f..%.2f  lon %.2f..%.2f",
+            "keep %s: lat %.2f..%.2f  lon %.2f..%.2f  %s..%s",
             name, real[0], real[1], real[2], real[3],
+            *(span or ("?", "?")),
         )
 
     return kept, summary

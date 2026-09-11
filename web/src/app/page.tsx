@@ -129,7 +129,7 @@ export default function Page() {
     const ac = new AbortController();
     api
       .observations({ limit: 4000 }, ac.signal)
-      .then((c) => useSessionStore.getState().setObservations(c.features))
+      .then((c) => useSessionStore.getState().setObservations(c.features, c.total))
       .catch(() => {});
     return () => ac.abort();
   }, []);

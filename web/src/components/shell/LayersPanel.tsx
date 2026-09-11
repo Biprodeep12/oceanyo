@@ -117,6 +117,12 @@ export default function LayersPanel() {
             <div className="px-4 pb-1 pt-0.5 text-[10.5px] leading-relaxed text-[color:var(--ze-text-faint)]">
               {shownCount} of {s.observations.length} within {Math.round(windowDays)} days
               of this step
+              {s.observationsTotal > s.observations.length && (
+                <>
+                  {" "}
+                  &middot; sampled from {s.observationsTotal}
+                </>
+              )}
             </div>
           )}
 

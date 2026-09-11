@@ -501,8 +501,33 @@ Two more things worth knowing about this data:
 - **There are no Bay of Bengal glider deployments in the GDAC.** 131 of 1115
   fall in the wider Indian Ocean, almost all in the Mozambique Channel. The
   spec warned coverage was sparse; that is the number. The demo therefore
-  keeps synthetic gliders in the Bay of Bengal and uses a real deployment as
-  the format fixture.
+  keeps synthetic gliders in the Bay of Bengal, and shows real ones in the
+  `mozambique_channel` region of the Indian Ocean catalogue.
+- **The index lies about dates too, and selecting on position alone is not
+  enough.** `fetch_glider` matched deployments on *where* a glider was and
+  never on *when*, so it downloaded `sea006_20250918` — September 2025, against
+  a model record ending June 2024. Not one of its 192 dives could be compared
+  to a single model timestep, and **MVP item 12 shipped as a mesh with nothing
+  to draw**. Nothing caught it: no test asserted that a glider had drawn.
+
+  The window now comes from the model's own time axis, and deployments are
+  chosen greedily for month coverage rather than by date — otherwise eight
+  fetches return eight consecutive sorties of one glider in one fortnight.
+  That selects three platforms, **2757 dive/climb segments, ten of the model's
+  twelve months**, deepest 1281 m. And they score: `sea027:50` gives bias
+  −0.033, RMSE 0.605, r 0.998 over 85 levels from 3.8 m to 1260 m.
+
+  Two further defects surfaced only once there was enough glider data to see
+  them. The block's glider list read the time-windowed features but declared a
+  dependency on the unwindowed ones, so scrubbing the timeline never changed
+  which deployments were drawn. And `/api/observations` truncated with
+  `refs[:limit]` over an index in parse order — every Argo float, then every
+  glider — so exceeding the limit would have dropped one platform entirely
+  before touching the other. It stride-samples now and reports `total`
+  alongside `count`, and the layers panel says "sampled from N" when they
+  differ. Both are the same mistake in different clothes: **a constant tuned
+  for one dataset, presented as universal**, which is now the sixth instance
+  of it in this project.
 - **Real-time data contains samples flagged good at 40 degrees C.** Real-time
   mode applies almost no QC, and one such spike moves RMSE more than every
   genuine difference in a profile combined. The matchup now applies a
