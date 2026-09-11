@@ -18,6 +18,21 @@ class Settings(BaseSettings):
     data_root: Path = REPO_ROOT / "data"
     cache_dir: Path = REPO_ROOT / "data" / "cache"
 
+    # Where the running process may WRITE. Neither config/ nor data/ qualifies:
+    # docker-compose bind-mounts both read-only. This holds the catalog chosen
+    # from the UI, which is why it must be outside them both.
+    runtime_dir: Path = REPO_ROOT / ".runtime"
+
+    # How POST /api/catalog applies a change. "auto" reads OCEANUPS_SUPERVISED:
+    #   exit -- something will restart us (compose's `restart:`, serve-api.mjs)
+    #   off  -- nothing would bring the process back, so the endpoint refuses
+    # Refusing is the point: an endpoint that can kill the server with no
+    # supervisor is worse than no endpoint at all.
+    restart_mode: str = "auto"
+    #: Force the "exit" branch under a supervisor we cannot detect
+    #: (systemd, pm2, a bare `docker run --restart`).
+    supervised: bool = False
+
     # xpublish is the flakiest dependency in the stack; it is mounted inside a
     # try/except and the API boots regardless. See api/main.py.
     enable_xpublish: bool = True

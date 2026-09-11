@@ -16,6 +16,7 @@ import {
   toWorld,
 } from "@/lib/geo/blockSpace";
 import { getCached, loadVolume, pumpUploads, volumeKey } from "@/lib/loading/volumeStore";
+import { diveHandoff, handoffPose } from "@/lib/geo/dive";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { probeGpu } from "@/three/caps";
 import { volumeFragmentWithSteps, volumeVertexShader } from "@/three/shaders/volume";
@@ -510,6 +511,124 @@ function DepthSlicePlane({
   );
 }
 
+/**
+ * The map's own picture, laid on the lid of the block.
+ *
+ * This is what makes the handoff invisible. At the moment the renderers swap,
+ * the 3D scene has to be showing what the map was showing -- the same field,
+ * the same depth, the same colour scale -- or the transition is two pictures
+ * of the same place rather than one continuous move. `/api/slice` renders that
+ * image server-side from the same code path the map tiles come from, so the
+ * two agree by construction rather than by tuning.
+ *
+ * It fades out as the block grows, handing the surface over to the volume.
+ */
+function SurfaceCap({
+  bbox,
+  variable,
+  depth,
+  time,
+  size,
+  display,
+}: {
+  bbox: BBox;
+  variable: string;
+  depth: number;
+  time: string | undefined;
+  size: [number, number, number];
+  display: { range: [number, number]; log: boolean; colormap: string };
+}) {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  const matRef = useRef<THREE.MeshBasicMaterial>(null);
+  const phase = useSessionStore((s) => s.phase);
+  // Playback on the MAP would otherwise fetch one of these per timestep, for a
+  // lid that is not on screen; the effect re-runs and catches up when it stops.
+  const playing = useSessionStore((s) => s.playing);
+
+  useEffect(() => {
+    // Not while inside the block, where this is invisible. Without the guard,
+    // playing the timeline fetched and uploaded a half-megapixel PNG for every
+    // timestep -- a download and a texture upload per frame of playback, for a
+    // lid nobody can see. It is fetched on the map instead, ahead of the dive,
+    // which is where it is needed and where there is time for it.
+    if (phase === "block" || playing) return;
+    let cancelled = false;
+    const url = api.slicePngUrl({
+      variable,
+      bbox,
+      depth,
+      time,
+      res: 512,
+      display,
+    });
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      url,
+      (t) => {
+        if (cancelled) {
+          t.dispose();
+          return;
+        }
+        t.colorSpace = THREE.SRGBColorSpace;
+        // The field is a picture of cells, not a photograph: leave it crisp
+        // rather than smoothing one cell into the next.
+        t.minFilter = THREE.LinearFilter;
+        t.magFilter = THREE.LinearFilter;
+        setTex((old) => {
+          old?.dispose();
+          return t;
+        });
+      },
+      undefined,
+      () => {
+        /* no cap; the transition still works, it just starts plainer */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, playing, bbox.join(","), variable, depth, time, display.range.join(","), display.log, display.colormap]);
+
+  useEffect(() => () => tex?.dispose(), [tex]);
+
+  // Driven per frame rather than through state: this fades during the extrude,
+  // and a re-render per frame is the stutter the extrude exists to avoid.
+  useFrame(() => {
+    const m = matRef.current;
+    if (!m) return;
+    const p = useSessionStore.getState().blockProgress;
+    // Gone by the time the block is two-thirds out, so the water column -- not
+    // a lid over it -- is what the viewer ends up looking at.
+    const o = THREE.MathUtils.clamp(1 - p / 0.66, 0, 1);
+    if (m.opacity !== o) {
+      m.opacity = o;
+      m.visible = o > 0.004;
+    }
+  });
+
+  if (!tex) return null;
+
+  return (
+    // +90 degrees, not -90: the PNG's first row is north (the server flips it
+    // for exactly this reason), and the other rotation lands that row in the
+    // south. DoubleSide because this face is looked at from above during the
+    // dive and from below once inside the block.
+    <mesh position={[0, size[1] / 2, 0]} rotation={[Math.PI / 2, 0, 0]} renderOrder={-2}>
+      <planeGeometry args={[size[0], size[2]]} />
+      <meshBasicMaterial
+        ref={matRef}
+        map={tex}
+        transparent
+        opacity={1}
+        depthWrite={false}
+        side={THREE.DoubleSide}
+        toneMapped={false}
+      />
+    </mesh>
+  );
+}
+
 // ---------------------------------------------------------------- scene
 
 export default function BlockScene() {
@@ -576,8 +695,18 @@ export default function BlockScene() {
   // volume, seabed, isosurface, curtain, instruments -- must obey the same
   // boundary, and threading a plane array through six components is six
   // chances for one of them to be forgotten and to stick out of the shape.
+  //
+  // Mirrored with the scene. `gl.clippingPlanes` are WORLD-space planes applied
+  // after the model transform, and the block is drawn inside a group that
+  // negates Z (see the scene graph below). A plane computed in block space
+  // therefore has to have its Z flipped too, or a four-corner selection clips
+  // the water on the wrong side of the shape it drew.
   useEffect(() => {
-    gl.clippingPlanes = clip ?? [];
+    gl.clippingPlanes = (clip ?? []).map((pl) => {
+      const m = pl.clone();
+      m.normal.z = -m.normal.z;
+      return m;
+    });
     return () => {
       gl.clippingPlanes = [];
     };
@@ -590,9 +719,15 @@ export default function BlockScene() {
   // time Dive is pressed the volume is usually already cached and the effect
   // never re-runs. Keying on readiness instead means the transition completes
   // whether the data arrived early (prefetch hit) or late.
+  //
+  // "holding" only. The extrude used to end the moment the data arrived, which
+  // with a warm prefetch is instantly -- so the transition declared itself over
+  // while the camera was still flying, the map hid behind it, and the orbit
+  // controls took the camera mid-flight. The tween decides when the movement
+  // is finished; this decides whether there is anything in the water yet.
   useEffect(() => {
     if (!volume) return;
-    if (phase === "extruding" || phase === "holding") setPhase("block");
+    if (phase === "holding") setPhase("block");
   }, [volume, phase, setPhase]);
 
   // Stage 0: bathymetry, decimated. Renders the block frame and seabed before
@@ -737,6 +872,7 @@ export default function BlockScene() {
   // orientation change, not on every resize, so it never yanks the camera out
   // from under someone who is orbiting.
   const portrait = size.height > size.width;
+  const fitted = useRef(new THREE.Vector3(2.4, 1.9, -2.8));
   useEffect(() => {
     if (!frame) return;
     const [sx, sy, sz] = frame.size;
@@ -746,12 +882,117 @@ export default function BlockScene() {
     const aspect = size.width / Math.max(size.height, 1);
     const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
     const distance = (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 0.92;
-    const direction = new THREE.Vector3(0.62, 0.49, 0.72).normalize();
-    camera.position.copy(direction.multiplyScalar(distance));
-    camera.lookAt(0, 0, 0);
+    // -Z, because -Z is north in the mirrored scene: this is a view from the
+    // north-east, which is what it always looked like and now also is.
+    const direction = new THREE.Vector3(0.62, 0.49, -0.72).normalize();
+    fitted.current.copy(direction).multiplyScalar(distance);
+
+    // Only take the camera when nothing is flying it. During a dive the
+    // flight below owns it, and snapping here would be the jump this whole
+    // transition exists to remove.
+    const ph = useSessionStore.getState().phase;
+    if (ph === "block" || !diveHandoff.get()) {
+      camera.position.copy(fitted.current);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(0, 0, 0);
+    }
     perspective.updateProjectionMatrix();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection, portrait, exaggeration]);
+
+  // The flight itself: the map's rectangle -> the block's usual view.
+  //
+  // Driven from `blockProgress` inside useFrame rather than from React state.
+  // The whole point is that no frame is dropped between the two renderers, and
+  // a component that re-rendered sixty times a second would drop several.
+  const flight = useRef({
+    from: new THREE.Vector3(),
+    fromTarget: new THREE.Vector3(),
+    // North is up on the map, Y is up in the block: the roll of the camera
+    // has to travel between those two as well as the pitch.
+    upFrom: new THREE.Vector3(0, 0, -1),
+    upTo: new THREE.Vector3(0, 1, 0),
+    // Where the flight ends. Normally the fitted view -- but on the way back
+    // it is wherever the camera actually IS, because someone who has orbited
+    // the block should leave from the view they were looking at rather than
+    // be snapped to a canonical one first.
+    to: new THREE.Vector3(),
+    armed: false,
+    done: false,
+    // Scratch. This runs every frame of the transition -- the one stretch of
+    // this app where a dropped frame is the whole feature failing -- and
+    // allocating seven vectors and quaternions per frame to throw them away is
+    // garbage collection scheduled for exactly the wrong moment.
+    sA: new THREE.Vector3(),
+    sB: new THREE.Vector3(),
+    sDir: new THREE.Vector3(),
+    sTarget: new THREE.Vector3(),
+    sOrigin: new THREE.Vector3(),
+    sQ: new THREE.Quaternion(),
+    sStep: new THREE.Quaternion(),
+    sIdentity: new THREE.Quaternion(),
+  });
+
+  useEffect(() => {
+    const f = flight.current;
+    if (!frame) return;
+
+    // Only the map disarms it. Disarming on "holding" or "block" -- which is
+    // where every dive ends up -- left nothing to fly on the way back, and the
+    // return went back to being an opacity fade with the block frozen in place.
+    if (phase === "map") {
+      f.armed = false;
+      return;
+    }
+
+    // Leaving: fly the same arc backwards, from wherever the camera is now.
+    // No re-arming, and above all no snap -- a "Back to map" that jumped to a
+    // canonical view first would undo the continuity the dive just bought.
+    if (phase === "returning") {
+      if (f.armed) {
+        f.to.copy(camera.position);
+        f.done = false;
+      }
+      return;
+    }
+
+    // "holding" and "block": the flight has landed, and the orbit controls own
+    // the camera. Leave the armed state alone so the return can use it.
+    if (phase !== "extruding" && phase !== "framing") return;
+    const h = diveHandoff.get();
+    if (!h) {
+      f.armed = false;
+      return;
+    }
+    // The rectangle was measured in the viewport as it was THEN. Resize the
+    // window between framing and the swap and those pixels mean nothing --
+    // better to fly from the fitted view than to land confidently in the
+    // wrong place.
+    if (
+      Math.abs(h.viewport.w - size.width) > 2 ||
+      Math.abs(h.viewport.h - size.height) > 2
+    ) {
+      f.armed = false;
+      return;
+    }
+    const perspective = camera as THREE.PerspectiveCamera;
+    const pose = handoffPose(h, frame.size[0], frame.size[2], frame.size[1] / 2, perspective.fov);
+    f.from.set(...pose.position);
+    f.fromTarget.set(...pose.target);
+    f.upFrom.set(...pose.up);
+    f.upTo.set(0, 1, 0);
+    f.to.copy(fitted.current);
+
+    // Start there, this frame, before anything is drawn: the first painted
+    // frame of the block has to be the one that matches the map.
+    camera.position.copy(f.from);
+    camera.up.copy(f.upFrom);
+    camera.lookAt(f.fromTarget);
+    perspective.updateProjectionMatrix();
+    f.armed = true;
+    f.done = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, selection, frame?.size.join(","), size.width, size.height]);
 
   // The same rail buttons that zoom the map dolly this camera, so the control
   // means the same thing in both modes. Dollying along the view direction
@@ -768,7 +1009,8 @@ export default function BlockScene() {
       zoomIn: () => dolly(1 / 1.25),
       zoomOut: () => dolly(1.25),
       reset: () => {
-        camera.position.set(2.4, 1.9, 2.8);
+        camera.position.copy(fitted.current);
+        camera.up.set(0, 1, 0);
         camera.lookAt(0, 0, 0);
       },
     };
@@ -778,8 +1020,156 @@ export default function BlockScene() {
 
   // Detect camera motion to drive adaptive ray-marching, and push the next
   // slab of any volume still streaming onto the GPU (spec 5.1 item 5).
+  const blockRef = useRef<THREE.Group>(null);
+
+  // Where the block's lid lands on screen, and where the handoff says it
+  // should. The dive claims the lid IS the map's rectangle, and a claim like
+  // that is worth nothing unless it can be measured -- measuring it by eye on
+  // a screenshot is how a 40-pixel error ships. Same reason `__floatPoints`
+  // exists.
+  //
+  // `lid` is computed from the handoff pose rather than from the live camera,
+  // so the answer does not depend on catching the one frame where the
+  // transition begins; `live` is the current camera, for watching the flight.
+  useEffect(() => {
+    const at = (cam: THREE.PerspectiveCamera, g: THREE.Object3D | null) => {
+      if (!frame) return null;
+      const [sx, , sz] = frame.size;
+      const y = frame.size[1] / 2;
+      const v = new THREE.Vector3();
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const [ox, oz] of [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+      ]) {
+        v.set((ox * sx) / 2, y, (oz * sz) / 2);
+        if (g) v.applyMatrix4(g.matrixWorld);
+        v.project(cam);
+        xs.push(((v.x + 1) / 2) * size.width);
+        ys.push(((1 - v.y) / 2) * size.height);
+      }
+      return {
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        w: Math.max(...xs) - Math.min(...xs),
+        h: Math.max(...ys) - Math.min(...ys),
+      };
+    };
+
+    const w = window as unknown as { __diveAlignment?: unknown };
+    w.__diveAlignment = () => {
+      const h = diveHandoff.get();
+      if (!h || !frame) return null;
+      const live = camera as THREE.PerspectiveCamera;
+      const pose = handoffPose(h, frame.size[0], frame.size[2], frame.size[1] / 2, live.fov);
+      const probe = new THREE.PerspectiveCamera(
+        live.fov,
+        size.width / Math.max(size.height, 1),
+        0.01,
+        100,
+      );
+      probe.position.set(...pose.position);
+      probe.up.set(...pose.up);
+      probe.lookAt(...pose.target);
+      probe.updateMatrixWorld();
+      probe.updateProjectionMatrix();
+      const lid = at(probe, null);
+      if (!lid) return null;
+      return {
+        rect: h.rect,
+        lid,
+        delta: {
+          x: lid.x - h.rect.x,
+          y: lid.y - h.rect.y,
+          w: lid.w - h.rect.w,
+          h: lid.h - h.rect.h,
+        },
+        // The live camera, for watching the flight rather than its endpoints.
+        live: at(live, blockRef.current),
+        camera: camera.position.toArray().map((v) => Number(v.toFixed(3))),
+      };
+    };
+
+    return () => {
+      // The closure holds the camera and the block group; leaving it on the
+      // window keeps the whole scene alive after the block is gone, which is
+      // the one thing `disposeAll()` exists to prevent.
+      delete w.__diveAlignment;
+    };
+  }, [camera, frame, size.width, size.height]);
+
   useFrame(({ gl }) => {
     pumpUploads(gl);
+
+    const st = useSessionStore.getState();
+    const p = st.blockProgress;
+
+    // Grow the block downward from its lid. Scaling about the TOP is what
+    // makes this read as an extrusion rather than as a box inflating: the
+    // surface the viewer is already looking at never moves.
+    const g = blockRef.current;
+    if (g && frame) {
+      const h = THREE.MathUtils.clamp(p, 0.0005, 1);
+      // Only when it actually changed. Writing the same scale every frame
+      // marks the matrix dirty, and three then recomputes the world matrix of
+      // everything under it -- seabed, volume, every instrument -- sixty times
+      // a second for a block that is sitting still, which is most of the time
+      // anyone spends in here.
+      if (g.scale.y !== h) {
+        g.scale.set(1, h, -1);
+        g.position.y = ((1 - h) * frame.size[1]) / 2;
+      }
+    }
+
+    const f = flight.current;
+    if (f.armed && !f.done) {
+      // Arc rather than a straight line: interpolate the direction about the
+      // target and the distance separately, so the camera swings down around
+      // the block instead of sliding through the corner of it.
+      const dirA = f.sA.copy(f.from).sub(f.fromTarget);
+      const rA = dirA.length();
+      dirA.normalize();
+      const dirB = f.sB.copy(f.to);
+      const rB = dirB.length();
+      dirB.normalize();
+      const q = f.sQ.setFromUnitVectors(dirA, dirB);
+      const step = f.sStep.slerpQuaternions(f.sIdentity, q, p);
+      const dir = f.sDir.copy(dirA).applyQuaternion(step);
+      const target = f.sTarget.copy(f.fromTarget).lerp(f.sOrigin.set(0, 0, 0), p);
+
+      // Pull back through the middle of the flight. Both ends are framed --
+      // the lid on the map's rectangle, the block in its usual view -- but the
+      // halfway pose is neither, and at a constant radius the block swells
+      // past the edges of the window on the way. A quarter of the distance,
+      // shaped so it is zero at both ends and changes nothing there.
+      const r = THREE.MathUtils.lerp(rA, rB, p) * (1 + 0.26 * Math.sin(Math.PI * p));
+      camera.position.copy(target).addScaledVector(dir, r);
+
+      // Look AT the target rather than slerping between two fixed
+      // orientations. Interpolated orientations do not point at the
+      // interpolated target, so the block drifted toward the corner of the
+      // frame mid-flight -- where a 45 degree perspective stretches it, and it
+      // grew by two thirds on the way to a view that is barely bigger.
+      camera.up.copy(f.upFrom).lerp(f.upTo, p).normalize();
+      camera.lookAt(target);
+
+      // Not while leaving. The return starts at p = 0.9995, which tripped this
+      // on its very first frame: the flight declared itself finished and the
+      // block sat frozen while the progress it was supposed to follow ran all
+      // the way back to zero underneath it.
+      if (p >= 0.999 && st.phase !== "returning") {
+        // Hand the camera over exactly where the orbit controls expect it,
+        // rather than a fraction of a degree away from it.
+        camera.position.copy(f.to);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(0, 0, 0);
+        f.done = true;
+      }
+    }
+
     if (!camera.position.equals(lastCam.current)) {
       lastCam.current.copy(camera.position);
       if (!moving) setMoving(true);
@@ -798,6 +1188,33 @@ export default function BlockScene() {
       <ambientLight intensity={0.75} />
       <directionalLight position={[3, 6, 4]} intensity={1.15} />
       <directionalLight position={[-4, 2, -3]} intensity={0.35} color="#7fb6ff" />
+
+      {/*
+        Everything geographic hangs off this group, and it is mirrored: scale
+        Z by -1 so that world -Z is north.
+
+        Without it the block is a mirror image of the map. The axes are
+        x = east, y = up, z = north, and east x up = north here -- while in the
+        real world east x up = SOUTH. A left-handed geographic frame cannot be
+        turned back into a right-handed one by moving the camera, so a top-down
+        view could show east to the right or north upward, never both, and the
+        dive could never line up with the map it came from.
+
+        The Y scale is animated on top of the same group, from a sheet to the
+        full block, about the lid. See useFrame above.
+      */}
+      <group ref={blockRef} scale={[1, 1, -1]}>
+      {/* The surface cap: the map's own picture, on the lid of the block.
+          It is what makes the handoff invisible -- at the instant the
+          renderers swap, this image is the image the map was showing. */}
+      <SurfaceCap
+        bbox={selection}
+        variable={variable}
+        depth={depth}
+        time={time}
+        size={frame.size}
+        display={display}
+      />
 
       {clip && selectionQuad ? (
         <QuadFrameLines
@@ -877,6 +1294,7 @@ export default function BlockScene() {
         exaggeration={exaggeration}
         depths={depths}
       />
+      </group>
     </group>
   );
 }

@@ -87,7 +87,10 @@ npm run fetch:real -- --woa   # WOA23 climatology
 OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
 ```
 
-That environment variable is the entire migration. See
+That environment variable is the entire migration — or pick the dataset from
+the **Dataset** section at the top of the layers panel, which does the same
+thing without stopping anything. See
+[Switching datasets from the UI](#switching-datasets-from-the-ui) and
 [Real data, end to end](#real-data-end-to-end).
 
 ### Docker
@@ -99,8 +102,9 @@ docker compose up --build     # http://localhost:3000
 `data/` is bind-mounted read-only rather than baked into the image: the
 dataset is bigger than the code by two orders of magnitude, and regenerating
 it should not be a rebuild. Generate it on the host first with the commands
-above. *Authored and reviewed, but not run — there is no Docker daemon on the
-development machine, so treat the compose file as unverified.*
+above. Both services have been run and come up healthy; the API container is
+also the deployment where the dataset picker's restart path is the container
+restart policy rather than a launcher script.
 
 ---
 
@@ -130,20 +134,27 @@ development machine, so treat the compose file as unverified.*
 no reload, and reports time per beat. The last run:
 
 ```
-   483 ms  open the map
-  2301 ms  basemap and field tiles painted
-   396 ms  pick a variable, a region and a time -- Bay of Bengal, 2023-10-15, 3 instruments
-  1546 ms  WOW 1: press Dive -- left map mode in 3 ms
-     2 ms  water column resolves -- 0.0 s from pressing Dive
-  5743 ms  orbit the block -- 18 fps (CPU renderer; a floor, not the demo machine)
-  1026 ms  scrub the depth slider through the thermocline
-  6166 ms  WOW 3: play the timeline -- 9 of 12 steps in 4 s, 11 buffered
-   644 ms  click an Argo float -- argo 1902669:3, 102 levels matched
-   114 ms  WOW 2: model vs observation -- bias -0.055, RMSE 0.369 over 102 levels
-  1931 ms  back to map -- selection kept
+   271 ms  open the map
+  1095 ms  basemap and field tiles painted
+   340 ms  pick a variable, a region and a time -- Bay of Bengal, 13 instruments in window
+  1551 ms  WOW 1: press Dive, block appears -- left map mode in 615 ms
+  1659 ms  water column resolves (stage 1) -- 2.3 s from pressing Dive
+  4895 ms  orbit the block -- 21 fps while idle (CPU renderer; a floor)
+  1043 ms  scrub the depth slider through the thermocline -- 0 -> 800 m
+  5709 ms  WOW 3: play the timeline -- 9 of 30 steps in 4 s, 14 buffered
+   474 ms  click an Argo float -- argo 2900703:0 in 263 ms, 75 levels matched
+   111 ms  WOW 2: model vs observation -- bias 0.311, RMSE 0.318 (25 km / 1 d)
+  1934 ms  back to map -- 891 ms, selection kept
 
-  14 beats, 0 broken, 21.7 s end to end, 0 console errors
+  14 beats, 0 broken, 20.1 s end to end, 0 console errors
 ```
+
+**"Left map mode in 615 ms" is the framing**, not a wait: the map is centring
+the selection so the block can be handed the exact pixels it occupies. The
+water column then resolves at the end of the extrude rather than at the start,
+which is why that line reads 2.3 s where it used to read 0.0 s -- the data is
+prefetched exactly as before and arrives long before it is needed; what moved
+is the moment the transition is allowed to finish.
 
 **Three things a presenter has to know**, all found by that rehearsal and none
 of them visible to a feature test:
@@ -226,6 +237,52 @@ both.
 - Hints name the gesture the reader actually has -- "pinch to zoom", not
   "scroll to zoom".
 
+### The dive, and why the block had to be mirrored
+
+Pressing **Dive** is two movements, not a crossfade:
+
+1. **The map centres the selection** (`fitBounds`, bearing 0, pitch 0) and
+   reports the exact pixels its rectangle now occupies.
+2. **The 3D camera is placed so the block's lid projects onto those pixels** —
+   measured at **dx 0.0, dw 0.0 px**, with height inside the rectangle by under
+   1% (Mercator stretches latitude; the block's aspect uses one cos(lat) for the
+   whole box). The lid wears an image from `/api/slice`, the same renderer the
+   map tiles come from, so the swap is invisible rather than merely quick.
+3. **The block grows downward from that lid** while the camera arcs to its
+   viewing position, the scene's sky fading in over the map as it goes.
+   `Back to map` flies the same arc in reverse, from wherever you orbited to.
+
+Three things this turned up, each of which had to be fixed for the seam to
+close at all:
+
+- **The block was a mirror image of the map.** Its axes are x = east, y = up,
+  z = north — and in that frame east × up = north, while in the real world
+  east × up = *south*. A left-handed geographic frame cannot be turned back into
+  a right-handed one by moving the camera: a top-down view could show east to
+  the right or north upward, never both. The scene now hangs off a group that
+  negates Z, so world −Z is north. The clipping planes for a four-corner
+  selection are mirrored with it, or they would clip the wrong side.
+- **The extrude used to end the moment the data arrived**, which with a warm
+  prefetch is instantly — so the transition declared itself over while the
+  camera was still flying, and the orbit controls grabbed it mid-flight.
+- **Interpolating between two camera orientations does not point at the
+  interpolated target.** The block drifted toward the corner of the frame,
+  where a 45° perspective stretched it, and it swelled by two thirds on the way
+  to a view barely larger than the one it started from. The camera looks at the
+  moving target each frame instead, and pulls back a quarter of the distance
+  through the middle of the flight, where neither end's framing applies.
+
+`npm run smoke` measures the alignment rather than trusting it — the check is
+computed from the handoff pose, so it does not depend on catching the single
+frame where the renderers swap.
+
+### Clearing a region
+
+A drawn rectangle had no way out except drawing another one. **Clear** sits
+beside **Dive**, `Esc` does the same, and the Regions popover carries the same
+action — with Escape yielding to a popover or the palette when one is open, so
+a single keypress never undoes two things.
+
 ### Decisions worth knowing
 
 - **No CORS anywhere.** Next rewrites proxy `/api`, `/tiles`, `/wms` and
@@ -302,6 +359,36 @@ OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
 | **Bathymetry** | **ETOPO 2022** (NOAA NCEI, ERDDAP) | 30 arc-second | none |
 | **Climatology** | **NOAA WOA23** | 1° | none |
 | **Observations** | **Argo** + **EGO gliders** (Ifremer GDACs) | profiles | none |
+
+### Switching datasets from the UI
+
+The **Dataset** section at the top of the layers panel lists every
+`config/catalog.*.yaml`, with the live one checked:
+
+```
+GET  /api/catalogs     what is on disk, what is live, whether a switch is possible
+POST /api/catalog      {"id": "bob-hycom"} -> writes the choice, restarts the API
+```
+
+- **It restarts the API rather than hot-swapping, and says so.** A hot swap
+  would leave WMS and OPeNDAP serving the *old* dataset — xpublish is mounted
+  once at startup against the dataset open then — close files under in-flight
+  requests, and strand catalog-shaped state in the tab. Six seconds here; the
+  overlay counts them.
+- **Missing data is shown, disabled, with the command that fetches it** —
+  GLORYS12 reads *"missing · copernicusmarine subset …"* rather than failing.
+- **The endpoint takes an id, not a path**, so it is not a file-open primitive
+  reachable from a browser.
+- **A stored choice cannot brick the next boot**: it is re-validated at startup
+  and discarded, with a log line, if its files have gone.
+
+What restarts the process is whatever supervises it: `restart: unless-stopped`
+under Docker, `scripts/serve-api.mjs` in development. With neither,
+`/api/catalogs` reports `restart.supported: false`, the rows are disabled with
+the reason, and nothing is killed. (`--reload` was tried first and rejected:
+WatchFiles logged *"Reloading"* and hung with the old process still serving.)
+The choice lives in `.runtime/catalog.json` — outside `config/` and `data/`,
+which compose mounts read-only.
 
 ### Why HYCOM rather than GLORYS12
 
@@ -650,7 +737,7 @@ looks at -- `positive="down"`, monotonic ascending axes, resolvable
 ```bash
 npm run verify           # data contract: 40 assertions
 npm run fetch:real       # download real Argo + glider data and parse it
-npm run smoke            # browser smoke test: 21 desktop + 5 mobile steps
+npm run smoke            # browser smoke test: 22 desktop + 5 mobile steps
 ```
 
 **Run the smoke test against a production build**, not `next dev`:
@@ -927,8 +1014,7 @@ numbers — never measurements, and nothing about who is running it.
 The rest of **Level 3** is not built, and the spec says it should not be: it is
 listed as future work that "must not consume MVP hours".
 
-Reduced fidelity, stated plainly: the extrude is a camera and opacity crossfade
-rather than the pixel-registered map-to-block hand-off; the current layer's
+Reduced fidelity, stated plainly: the current layer's
 playback is time-compressed (direction and relative speed are the model's, the
 rate is not, and the UI says so); and the section track is a straight line in
 longitude/latitude rather than a great circle, which over a selection-sized

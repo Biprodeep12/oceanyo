@@ -13,6 +13,7 @@
 import { useMemo, useState } from "react";
 
 import AssessmentSection from "@/components/shell/AssessmentSection";
+import DatasetSection from "@/components/shell/DatasetSection";
 import { MenuRow, SectionLabel, Slider } from "@/components/ui";
 import {
   IconAnomaly,
@@ -102,6 +103,11 @@ export default function LayersPanel() {
 
       {(open || mobile) && (
         <>
+          {/* Which dataset, before what is drawn from it. Hidden in block mode:
+              the selection, the volume and the camera all belong to the
+              catalog that is loaded, so offering to replace it mid-dive is
+              offering to throw away the thing being looked at. */}
+          {!inBlock && <DatasetSection />}
           <SectionLabel>Observations</SectionLabel>
           <MenuRow
             label="Argo &amp; gliders"

@@ -1,6 +1,8 @@
 # DEFAULT catalog. Structurally identical to catalog.glorys.yaml -- swapping
 # between them is the whole real-data migration path.
 id: bob-synthetic
+label: "Synthetic Bay of Bengal"
+fetch: "npm run synth"
 source: "SYNTHETIC - GLORYS12V1-shaped, not a reanalysis"
 synthetic: true
 

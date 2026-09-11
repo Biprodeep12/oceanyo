@@ -48,6 +48,8 @@
 # ---------------------------------------------------------------------------
 
 id: bob-hycom
+label: "Real: HYCOM + Argo (Bay of Bengal)"
+fetch: "npm run fetch:hycom && npm run fetch:erddap && npm run fetch:real"
 source: "HYCOM GOFS 3.1 GLBy0.08 expt_93.0 (US Naval Research Laboratory, public domain)"
 synthetic: false
 

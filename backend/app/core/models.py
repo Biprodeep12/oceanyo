@@ -147,3 +147,46 @@ class HealthResponse(BaseModel):
     #: canonical variables a climatology anomaly can be computed for; empty
     #: when the catalog carries no climatology at all.
     climatology: list[str] = Field(default_factory=list)
+
+
+class CatalogEntry(BaseModel):
+    """One selectable dataset, and whether its files are on disk."""
+
+    id: str
+    label: str
+    source: str
+    synthetic: bool
+    active: bool
+    #: False when the model file is absent. The UI offers it disabled with the
+    #: reason rather than hiding it: "GLORYS needs a Copernicus account and a
+    #: download" is information, and a catalog that silently vanishes is not.
+    available: bool
+    missing: list[str] = Field(default_factory=list)
+    hint: str = ""
+
+
+class RestartCapability(BaseModel):
+    mode: Literal["exit", "off"]
+    supported: bool
+    reason: str
+    etaSeconds: int
+
+
+class CatalogsResponse(BaseModel):
+    active: str
+    #: Where the active catalog came from: the environment default, or a
+    #: choice made from the UI and still in effect.
+    activeSource: Literal["default", "selected"]
+    restart: RestartCapability
+    catalogs: list[CatalogEntry]
+
+
+class CatalogSwitchResponse(BaseModel):
+    ok: bool
+    id: str
+    #: False when the requested catalog is already the live one -- asked for
+    #: and already true, so nothing is restarted.
+    restarting: bool
+    mode: str = "none"
+    etaSeconds: int = 0
+    message: str = ""

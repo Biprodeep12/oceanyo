@@ -23,6 +23,14 @@ import { api } from "@/lib/api/client";
 import type { BBox } from "@/lib/api/types";
 import { cachedGrid, loadGrid, probeKey, sampleGrid } from "@/lib/loading/fieldProbe";
 import { shortLabel } from "@/lib/variableLabels";
+import {
+  FRAME_MS,
+  FRAME_PADDING,
+  FRAME_PADDING_MOBILE,
+  registerMapFramer,
+  releaseMapFramer,
+  type DiveHandoff,
+} from "@/lib/geo/dive";
 import { registerViewport, releaseViewport } from "@/lib/viewport";
 import { usePointer } from "@/state/usePointer";
 import { openProfile } from "@/lib/api/openProfile";
@@ -852,6 +860,85 @@ export default function MapView({ visible }: { visible: boolean }) {
       m.getCanvas().style.cursor = "";
     };
   }, [drawMode, drawShape, ready, setSelection, setDrawMode, setDrawAnchor]);
+
+  // --- framing the selection for the dive ---
+  //
+  // The 3D camera is positioned from the pixels this reports, so two things
+  // are not optional: the map must be at bearing 0 / pitch 0 (a rotated or
+  // tilted view does not project a lon/lat box to an axis-aligned rectangle),
+  // and the answer must come AFTER the movement has finished.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+
+    const framer = (bbox: BBox) =>
+      new Promise<DiveHandoff | null>((resolve) => {
+        const [w, s0, e, n] = bbox;
+        let settled = false;
+        let timer = 0;
+        const report = () => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          m.off("moveend", report);
+          try {
+            // All four corners rather than two: it costs nothing, and it is
+            // the version that stays correct if a bearing is ever allowed.
+            const pts = [
+              m.project([w, s0]),
+              m.project([e, s0]),
+              m.project([e, n]),
+              m.project([w, n]),
+            ];
+            const xs = pts.map((q) => q.x);
+            const ys = pts.map((q) => q.y);
+            const el = m.getContainer();
+            resolve({
+              rect: {
+                x: Math.min(...xs),
+                y: Math.min(...ys),
+                w: Math.max(...xs) - Math.min(...xs),
+                h: Math.max(...ys) - Math.min(...ys),
+              },
+              viewport: { w: el.clientWidth, h: el.clientHeight },
+              bbox,
+            });
+          } catch {
+            resolve(null);
+          }
+        };
+
+        // A fit that asks for the view the map is already in emits no moveend
+        // at all, and without this the dive would wait forever on a map that
+        // is already framed the way it was asked to be.
+        timer = window.setTimeout(report, FRAME_MS + 350);
+
+        userMoved.current = true; // an explicit move: stop auto-fitting
+        m.fitBounds(
+          [
+            [w, s0],
+            [e, n],
+          ],
+          {
+            padding: window.innerWidth < 768 ? FRAME_PADDING_MOBILE : FRAME_PADDING,
+            duration: FRAME_MS,
+            bearing: 0,
+            pitch: 0,
+          },
+        );
+
+        // AFTER the call, deliberately. fitBounds stops whatever camera
+        // animation is already running, and that stop emits its own `moveend`
+        // synchronously -- so a dive pressed during the 700 ms ease that
+        // follows clicking a marker would have measured the rectangle before
+        // the map had moved at all, and the lid would have landed confidently
+        // in the wrong place with nothing able to detect it.
+        m.once("moveend", report);
+      });
+
+    registerMapFramer(framer);
+    return () => releaseMapFramer(framer);
+  }, [ready]);
 
   // --- the rail owns zoom, and this is what it drives in map mode ---
   useEffect(() => {

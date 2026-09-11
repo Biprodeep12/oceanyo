@@ -30,11 +30,18 @@ Indian EEZ. **SIH 26067** · Ministry of Earth Sciences / INCOIS.
 
 ## 2. The extrude
 
-Press **Dive** and the selected footprint lifts off the map into a 3D block —
-a 1500 ms eased camera-and-opacity transition with both canvases mounted
-throughout. If the water column has not arrived it **holds at the tilted
-state** with the seabed visible rather than freezing, and completes the moment
-data lands.
+Press **Dive** and the map first **centres the selection**, then hands it to
+the 3D scene **pixel for pixel**: the block's lid lands on the very rectangle
+the map was showing — measured at **0.0 px** horizontally and within ~0.7%
+vertically, which is Mercator's latitude stretch — wearing the same image,
+fetched from the same renderer as the map tiles. The block then grows downward
+out of that rectangle while the camera swings to its viewing position, with the
+map still visible around it until the block covers it.
+
+If the water column has not arrived it **holds at the tilted state** with the
+seabed visible rather than freezing, and completes the moment data lands.
+**Back to map** flies the same arc in reverse, starting from wherever you
+orbited to.
 
 ## 3. Block mode (3D)
 
@@ -80,7 +87,7 @@ caught three real science bugs during development.
   the docs say which parts of the standard are absent rather than advertising
   them and failing
 - **OPeNDAP** — `/opendap.dds`, `/opendap.das`
-- **22 REST endpoints**, self-documented at `/docs`
+- **29 REST endpoints** under `/api`, self-documented at `/docs`
 - Mounted **fail-soft**: the API boots in seconds even if the standards stack
   fails, and `/api/health` reports what actually came up
 
@@ -105,6 +112,14 @@ OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
 | **Argo**, INCOIS DAC | Ifremer GDAC | 800 profiles, **0 failures**, 44,352 levels |
 | **EGO glider** | Ifremer GDAC | 192 dives/climbs, **0 failures**, deepest 1270 m |
 | **Climatology** | NOAA WOA23 | 0.4 MB, drives the anomaly layer with no code change |
+
+**And you can switch between them from the app.** The **Dataset** section at
+the top of the layers panel lists every catalog in `config/`, with the live one
+checked and any whose files are not on disk greyed out next to the command that
+fetches them. Choosing one restarts the API — a hot swap would leave the OGC
+WMS and OPeNDAP endpoints serving the previous dataset, because xpublish is
+mounted once at startup against the dataset that was open then — and the page
+reloads itself when the new catalog is live, in about six seconds here.
 
 ### Real model vs real floats
 
@@ -191,7 +206,7 @@ path, not a promise to remember.
 - **Dataset-wide colour limits**, so the volume never flickers between frames
 - **GPU capability probe** at runtime → quality tier, shown in the UI
 - **Texture disposal on exit**, so the tenth region selection does not crash
-- **40-assertion data contract** + a **26-step browser smoke test** (21
+- **40-assertion data contract** + a **27-step browser smoke test** (22
   desktop, 5 mobile), both run against whichever catalog is configured
 - **Engine sniffed per file**, because real GDAC products are NetCDF-3 and
   generated ones are NetCDF-4
@@ -206,7 +221,6 @@ path, not a promise to remember.
 
 - This is **not a warning system**. It is an exploration and validation tool,
   complementary to INCOIS operational products.
-- The extrude is a camera/opacity crossfade, not a pixel-registered hand-off.
 - Current playback is time-compressed; direction and relative speed are the
   model's, the rate is not.
 - The section track is a straight line in lon/lat, not a great circle —

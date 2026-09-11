@@ -255,6 +255,57 @@ await step("catalog loaded (variables listed)", async () => {
   );
 });
 
+await step("dataset picker agrees with the API", async () => {
+  // Deliberately NOT a switch. Switching restarts the API, and a test that
+  // restarts the thing under test loses the twenty steps after it -- and would
+  // leave the suite running against a different catalog than it started on.
+  // What is checked here is the part that can silently rot: the rows must be
+  // the catalogs the server actually found, and availability must be the
+  // server's answer rather than the client's guess.
+  const api = await page.evaluate(async () => {
+    const r = await fetch("/api/catalogs");
+    return r.ok ? r.json() : null;
+  });
+  if (!api) throw new Error("GET /api/catalogs did not answer");
+  const rows = await page.$$eval('input[type="radio"][name="catalog"]', (els) =>
+    els.map((e) => ({
+      label: e.getAttribute("aria-label"),
+      checked: e.checked,
+      disabled: e.disabled,
+    })),
+  );
+  if (api.catalogs.length < 2) {
+    console.log(`
+      only ${api.catalogs.length} catalog configured; picker hidden by design`);
+    process.stdout.write(" ".repeat(40));
+    return;
+  }
+  if (rows.length !== api.catalogs.length) {
+    throw new Error(`${api.catalogs.length} catalogs served, ${rows.length} rows shown`);
+  }
+  const active = api.catalogs.find((c) => c.active);
+  const checked = rows.filter((r) => r.checked);
+  if (checked.length !== 1 || checked[0].label !== active?.label) {
+    throw new Error(`checked row ${checked[0]?.label} is not the live catalog ${active?.label}`);
+  }
+  for (const c of api.catalogs) {
+    const row = rows.find((r) => r.label === c.label);
+    const shouldBlock = !c.available || (!api.restart.supported && !c.active);
+    if (row.disabled !== shouldBlock) {
+      throw new Error(
+        `${c.label}: available=${c.available} restartable=${api.restart.supported} ` +
+          `but the row is ${row.disabled ? "disabled" : "enabled"}`,
+      );
+    }
+  }
+  console.log(
+    `
+      ${rows.length} catalogs · live ${active?.id} · ` +
+      `switch ${api.restart.supported ? `via ${api.restart.mode}` : "unavailable here"}`,
+  );
+  process.stdout.write(" ".repeat(40));
+});
+
 await step("provenance matches the catalog", async () => {
   // Not "SYNTHETIC is present". The badge must agree with the catalog that is
   // actually loaded, in BOTH directions: three separate places hardcoded the
@@ -349,6 +400,29 @@ await step("dive -> block mode", async () => {
   );
 });
 
+await step("dive hands off pixel-exact", async () => {
+  // The claim the whole transition rests on: the block's lid lands on the
+  // rectangle the map was showing. Measured, not eyeballed -- and computed
+  // from the handoff pose rather than from the live camera, so it does not
+  // depend on catching the single frame where the two renderers swap.
+  const a = await page.evaluate(() => window.__diveAlignment?.() ?? null);
+  if (!a) throw new Error("no dive handoff recorded (did the map frame the selection?)");
+  const { delta, rect } = a;
+  const bad = Math.abs(delta.x) > 3 || Math.abs(delta.y) > 4 || Math.abs(delta.w) > 4;
+  // Height is the loose one on purpose: Mercator stretches latitude and the
+  // block's aspect uses one cos(lat) for the whole box, which differs by under
+  // a percent over a basin-sized selection. It lands INSIDE the rectangle.
+  if (bad || Math.abs(delta.h) > 0.02 * rect.h + 4) {
+    throw new Error(
+      `lid off the map rectangle by dx=${delta.x.toFixed(1)} dy=${delta.y.toFixed(1)} ` +
+        `dw=${delta.w.toFixed(1)} dh=${delta.h.toFixed(1)} px (rect ${rect.w.toFixed(0)}x${rect.h.toFixed(0)})`,
+    );
+  }
+  console.log(`
+      lid vs map rectangle: dx=${delta.x.toFixed(1)} dy=${delta.y.toFixed(1)} dw=${delta.w.toFixed(1)} dh=${delta.h.toFixed(1)} px`);
+  process.stdout.write(" ".repeat(40));
+});
+
 await step("screenshot: block mode", async () => {
   await page.waitForTimeout(3000);
   await shot("03-block.png");
@@ -392,10 +466,20 @@ await step("click a marker on the MAP opens a profile", async () => {
   await page.getByText(/profile$/i).first().waitFor({ timeout: 20000 });
 
   // Selecting must also SAY which one: ring, tag and a zoom that only goes in.
-  const tagged = await page.evaluate(
-    (id) => document.body.innerText.replace(/\s+/g, " ").includes(id),
-    hit.id,
-  );
+  //
+  // WAIT for the tag rather than sampling it once. The /profile$/i wait above
+  // returns instantly here, because the previous step already opened a profile
+  // panel and left it open -- so a single read lands ~300 ms before the new
+  // selection arrives and fails an assertion about a feature that works.
+  // Measured cold and with a panel already open: 280 ms and 305 ms.
+  const tagged = await page
+    .waitForFunction(
+      (id) => document.body.innerText.replace(/\s+/g, " ").includes(id),
+      hit.id,
+      { timeout: 15000 },
+    )
+    .then(() => true)
+    .catch(() => false);
   if (!tagged) throw new Error(`selection tag missing for ${hit.id}`);
   console.log(`
       map click -> ${hit.id}, tagged`);

@@ -18,6 +18,7 @@ import MatchupPanel from "@/components/panels/MatchupPanel";
 import { api } from "@/lib/api/client";
 import { applySnapshot, readHash, startPermalinkSync } from "@/lib/session/permalink";
 import { initialTheme } from "@/lib/theme";
+import { diveHandoff, frameSelection } from "@/lib/geo/dive";
 import { registerModeActions } from "@/lib/viewport";
 import { useIsTouch } from "@/state/useMediaQuery";
 import { useSessionStore } from "@/state/useSessionStore";
@@ -83,6 +84,19 @@ export default function Page() {
       ) {
         e.preventDefault();
         setPaletteOpen(true);
+      }
+      // Escape drops the region -- but only on the map, and only when nothing
+      // else is listening for it. In the block it would clear the region the
+      // scene is built from, and a popover or the palette has a better claim
+      // on the key while it is open.
+      if (e.key === "Escape") {
+        const st = useSessionStore.getState();
+        const typing =
+          e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+        const transient = document.querySelector("[data-transient]");
+        if (!typing && !transient && st.phase === "map" && (st.selection || st.drawMode)) {
+          st.clearSelection();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -151,9 +165,13 @@ export default function Page() {
   }, [variable]);
 
   // --- the extrude transition ---
-  const dive = () => {
-    if (!selection) return;
-    setPhase("extruding");
+  //
+  // Two movements, not one. The map first centres the selection and reports
+  // the pixels it occupies; only then does the 3D scene take over, with its
+  // camera placed so the block's top face lands on exactly those pixels. The
+  // swap is therefore invisible, and the extrude that follows grows a block
+  // downward out of a rectangle the viewer is already looking at.
+  const runExtrude = () => {
     const t0 = performance.now();
     const step = () => {
       const t = Math.min(1, (performance.now() - t0) / EXTRUDE_MS);
@@ -173,16 +191,37 @@ export default function Page() {
     rafRef.current = requestAnimationFrame(step);
   };
 
+  const dive = () => {
+    const st = useSessionStore.getState();
+    if (!st.selection || st.phase !== "map") return;
+    setPhase("framing");
+    void frameSelection(st.selection).then((handoff) => {
+      // A null handoff is not a failure: a shared permalink can open straight
+      // into the block with no map to ask, and the scene then uses its own
+      // fitted camera -- which is what every dive did before this existed.
+      diveHandoff.set(handoff);
+      if (useSessionStore.getState().phase !== "framing") return; // cancelled
+      setPhase("extruding");
+      runExtrude();
+    });
+  };
+
   const back = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     setPhase("returning");
     const t0 = performance.now();
     const from = useSessionStore.getState().blockProgress;
     const step = () => {
-      const t = Math.min(1, (performance.now() - t0) / 700);
-      setBlockProgress(from * (1 - t));
+      const t = Math.min(1, (performance.now() - t0) / 900);
+      // easeInOutCubic here too, so leaving retraces the path it arrived by
+      // rather than snapping out of the tilt.
+      const eased = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      setBlockProgress(from * (1 - eased));
       if (t < 1) rafRef.current = requestAnimationFrame(step);
-      else reset();
+      else {
+        diveHandoff.clear();
+        reset();
+      }
     };
     rafRef.current = requestAnimationFrame(step);
   };
@@ -191,13 +230,32 @@ export default function Page() {
   // bus the zoom controls use rather than duplicated.
   useEffect(() => registerModeActions(dive, back));
 
+  // "framing" deliberately does NOT count: the map is still the visible
+  // renderer while it centres the selection.
   const inBlock = phase === "extruding" || phase === "holding" || phase === "block";
   const settling = phase === "extruding" || phase === "holding";
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-[color:var(--ze-ocean)]">
-      <MapView visible={!inBlock} />
-      <BlockCanvas visible={inBlock} />
+      {/* Both renderers stay mounted across the whole transition, and each
+          one hides only once the other is covering it. The map is what the
+          block's lid is registered against, so hiding it at the swap would
+          remove the very thing that makes the swap invisible.
+
+          The block shows from "extruding" onward -- NOT during "framing".
+          While the map is still moving the rectangle into place there is no
+          handoff yet, so the camera is still at its fitted pose: showing the
+          block then puts a stray sliver of it over a sliding map, half a
+          second before the one frame where the two are supposed to line up. */}
+      <MapView visible={phase !== "block" && phase !== "holding"} />
+      <BlockCanvas
+        visible={
+          phase === "extruding" ||
+          phase === "holding" ||
+          phase === "block" ||
+          phase === "returning"
+        }
+      />
 
       <div className="pointer-events-auto absolute left-2 top-2 z-30 md:left-3 md:top-3">
         <Logo />
@@ -233,10 +291,23 @@ export default function Page() {
         )}
         <div className="flex w-full items-stretch gap-2 md:w-auto md:items-end">
           <Timeline />
+          {/* Clearing is offered where the region is acted on, not hidden in a
+              menu: the rectangle is the one thing on screen with no obvious
+              way back, and redrawing over it was the only exit. */}
+          {!inBlock && selection && (
+            <button
+              onClick={() => useSessionStore.getState().clearSelection()}
+              className="ze-btn pointer-events-auto h-auto px-3 text-[13px] md:h-[46px]"
+              title="Clear the selected region (Esc)"
+              aria-label="Clear region"
+            >
+              Clear
+            </button>
+          )}
           {!inBlock ? (
             <button
               onClick={dive}
-              disabled={!selection}
+              disabled={!selection || phase === "framing"}
               className="ze-btn ze-btn-primary pointer-events-auto h-auto px-5 text-[14px] md:h-[46px] md:px-6"
               title={
                 selection

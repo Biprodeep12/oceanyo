@@ -578,6 +578,9 @@ body {
   top: 12px;
   right: 62px;
   bottom: 12px;
+  /* Below the rail (z-70), which opens the popovers that ACT on this panel.
+     Raising this above the rail makes Regions, Settings and Events silently
+     unclickable whenever a profile is open. */
   z-index: 60;
   display: flex;
   width: 400px;
@@ -760,4 +763,73 @@ body {
 .ze-row-fill {
   width: auto;
   align-self: stretch;
+}
+
+/* A row that is offered but not selectable -- a catalog whose files are not on
+   disk. Hiding it would be worse: "GLORYS needs a Copernicus account" is
+   information, and a list that silently changes length between machines is
+   not something anyone can trust. The cursor and the dimming say unavailable;
+   the title attribute says why. */
+.ze-row[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ze-row[data-disabled]:hover {
+  background: transparent;
+}
+.ze-row[data-disabled] input {
+  cursor: not-allowed;
+}
+
+/* Secondary line inside a row or a panel: the source under a dataset name.
+   Dim and small, because it is there to be read on purpose, not at a glance. */
+.ze-sub {
+  display: block;
+  max-width: 100%;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ze-text-dim);
+  white-space: nowrap;
+}
+
+/* Switching datasets restarts the API, so the whole app is genuinely
+   unusable for a few seconds. A full-screen wait is the honest shape for
+   that -- a spinner tucked into the panel would invite clicking on a map
+   whose backend is gone. */
+.ze-switch-overlay {
+  position: fixed;
+  inset: 0;
+  /* Above everything, rail included: while the API is restarting there is
+     nothing on the page worth clicking. */
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: var(--ze-scrim);
+  backdrop-filter: blur(2px);
+  animation: ze-fade 160ms ease-out;
+}
+.ze-switch-card {
+  display: flex;
+  max-width: 320px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--ze-radius);
+  background: var(--ze-panel);
+  box-shadow: var(--ze-panel-shadow);
+  padding: 22px 26px;
+  text-align: center;
+}
+.ze-switch-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--ze-border);
+  border-top-color: var(--ze-accent);
+  animation: ze-spin 800ms linear infinite;
+}
+@keyframes ze-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

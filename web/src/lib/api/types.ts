@@ -477,3 +477,38 @@ export type ChatEvent =
   | { type: "reading"; tool: string; args: Record<string, unknown>; result: unknown }
   | { type: "action"; action: { name: string; args: Record<string, unknown> } }
   | ({ type: "final" } & ChatResponse);
+
+/** One selectable dataset from GET /api/catalogs. */
+export interface CatalogEntry {
+  id: string;
+  label: string;
+  source: string;
+  synthetic: boolean;
+  active: boolean;
+  /** False when the files this catalog names are not on disk. */
+  available: boolean;
+  missing: string[];
+  /** The command that fetches the missing files. */
+  hint: string;
+}
+
+export interface CatalogsResponse {
+  active: string;
+  activeSource: "default" | "selected";
+  restart: {
+    mode: "exit" | "off";
+    supported: boolean;
+    reason: string;
+    etaSeconds: number;
+  };
+  catalogs: CatalogEntry[];
+}
+
+export interface CatalogSwitchResponse {
+  ok: boolean;
+  id: string;
+  restarting: boolean;
+  mode: string;
+  etaSeconds: number;
+  message: string;
+}

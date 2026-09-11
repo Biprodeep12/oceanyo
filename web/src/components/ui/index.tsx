@@ -39,6 +39,9 @@ export function MenuRow({
   type = "checkbox",
   name,
   title,
+  disabled = false,
+  detail,
+  className = "",
 }: {
   label: string;
   icon?: ReactNode;
@@ -47,18 +50,32 @@ export function MenuRow({
   type?: "checkbox" | "radio";
   name?: string;
   title?: string;
+  /** Offered, but not selectable -- with `title` saying why. */
+  disabled?: boolean;
+  /** A second line under the label. Implies the taller stacked row. */
+  detail?: ReactNode;
+  className?: string;
 }) {
   return (
-    <label className="ze-row" data-active={checked} title={title}>
+    <label
+      className={`ze-row ${detail ? "ze-row-stack" : ""} ${className}`.trim()}
+      data-active={checked}
+      data-disabled={disabled || undefined}
+      title={title}
+    >
       <input
         type={type}
         name={name}
         checked={checked}
+        disabled={disabled}
         onChange={onChange}
         aria-label={label}
       />
-      {icon}
-      <span className="truncate">{label}</span>
+      <span className="flex w-full items-center gap-3">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
+      {detail}
     </label>
   );
 }
@@ -151,6 +168,10 @@ export function Popover({
       {mobile && <div className="ze-scrim z-30" onClick={onClose} aria-hidden />}
     <div
       ref={ref}
+      // Marks this as a transient surface that owns Escape while it is open.
+      // Without it, one Escape both closed a popover and cleared the region
+      // behind it -- two undos for one keypress.
+      data-transient=""
       className={
         mobile
           ? `ze-panel ze-sheet z-40 ${className}`

@@ -15,8 +15,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from ..core.catalog import Catalog
+from ..core.catalog import Catalog, active_path, clear_selection
 from ..core.config import settings
+from .services import restart
 from .datastore import get_store, init_store, shutdown_store
 from .routers import (
     assessment,
@@ -90,9 +91,38 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    cat = Catalog.load(settings.catalog)
-    log.info("catalog %s (synthetic=%s) from %s", cat.id, cat.synthetic, cat.path)
-    store = init_store(cat)
+    # active_path() is the runtime selection made from the UI if there is one,
+    # and OCEANUPS_CATALOG otherwise. A stored selection that no longer opens
+    # is discarded there rather than here: a past click must never be able to
+    # stop the platform booting.
+    # Clear any restart marker we are the result of. scripts/serve-api.mjs
+    # consumes it when it restarts us, but under Docker the restart policy is
+    # the supervisor and nothing else would ever remove the file.
+    restart.REQUEST_FILE.unlink(missing_ok=True)
+
+    chosen = active_path()
+    cat = Catalog.load(chosen)
+    log.info(
+        "catalog %s (synthetic=%s) from %s%s",
+        cat.id, cat.synthetic, cat.path,
+        "" if cat.path == settings.catalog else "  [selected at runtime]",
+    )
+    try:
+        store = init_store(cat)
+    except Exception as exc:  # noqa: BLE001
+        # A selection whose files EXIST but will not open -- truncated,
+        # wrong format, unreadable -- would otherwise take the platform down
+        # on every boot: the container restarts, reads the same choice, and
+        # fails again, with no UI left to change it. One click must never be
+        # able to do that, so a selection that cannot be opened is discarded
+        # and the environment's own catalog is used instead.
+        if chosen == settings.catalog:
+            raise
+        log.error("selected catalog %s failed to open (%s); falling back", cat.id, exc)
+        clear_selection()
+        cat = Catalog.load(settings.catalog)
+        log.info("catalog %s (synthetic=%s) from %s", cat.id, cat.synthetic, cat.path)
+        store = init_store(cat)
 
     # Warm the observation cache behind the API rather than in front of it.
     threading.Thread(target=store.prewarm, name="prewarm", daemon=True).start()

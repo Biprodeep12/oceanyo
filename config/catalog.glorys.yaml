@@ -81,6 +81,8 @@
 # ---------------------------------------------------------------------------
 
 id: bob-glorys12
+label: "Real: GLORYS12 + Argo (needs a Copernicus account)"
+fetch: "copernicusmarine subset ... (see the header of this file)"
 source: "GLORYS12V1 (CMEMS) - GLOBAL_MULTIYEAR_PHY_001_030, DOI 10.48670/moi-00021"
 synthetic: false
 

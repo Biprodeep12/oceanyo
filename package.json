@@ -5,7 +5,7 @@
   "description": "SIH 26067 - Interactive Ocean Data Visualization & Model-Observation Intelligence Platform",
   "scripts": {
     "dev": "concurrently -n api,web -c magenta,cyan \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "node scripts/py.mjs -m uvicorn app.api.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload --reload-dir backend/app",
+    "dev:api": "node scripts/serve-api.mjs -m uvicorn app.api.main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload --reload-dir backend/app",
     "dev:web": "npm --prefix web run dev",
     "rehearse": "node web/scripts/rehearse.mjs",
     "smoke:level2": "node web/scripts/smoke-level2.mjs",
@@ -15,7 +15,8 @@
     "fetch:real": "node scripts/py.mjs -m app.pipeline.cli fetch-real",
     "fetch:hycom": "node scripts/py.mjs -m app.pipeline.cli fetch-hycom",
     "fetch:erddap": "node scripts/py.mjs -m app.pipeline.cli fetch-erddap",
-    "smoke": "node web/scripts/smoke.mjs"
+    "smoke": "node web/scripts/smoke.mjs",
+    "smoke:switch": "node web/scripts/smoke-switch.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

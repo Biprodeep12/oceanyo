@@ -37,10 +37,18 @@ import type {
  */
 export const MAX_SECTION_POINTS = 8;
 
-/** map -> arming -> committing -> extruding -> holding -> block, and back. */
+/**
+ * map -> framing -> extruding -> holding -> block, and back.
+ *
+ * "framing" is the map centring the selection before it hands over. It is a
+ * phase rather than a local flag because the Dive button, the hints and the
+ * renderer visibility all have to agree that a dive has started while the MAP
+ * is still the thing on screen.
+ */
 export type TransitionPhase =
   | "map"
   | "arming"
+  | "framing"
   | "extruding"
   | "holding"
   | "block"
@@ -183,6 +191,8 @@ export interface SessionState {
   setDepth: (d: number) => void;
   setTimeIndex: (i: number) => void;
   setSelection: (b: BBox | null) => void;
+  /** Drop the drawn region and everything anchored to it. */
+  clearSelection: () => void;
   setDrawMode: (v: boolean) => void;
   setDrawShape: (v: "rect" | "quad") => void;
   setSelectionQuad: (q: [number, number][] | null) => void;
@@ -302,6 +312,19 @@ export const useSessionStore = create<SessionState>((set) => ({
   // on clipping to a shape the map has stopped drawing -- data would appear to
   // be missing from a region that was just selected.
   setSelection: (selection) => set({ selection, selectionQuad: null }),
+  // Deselecting is not just `selection: null`. A half-drawn rectangle, a quad
+  // from a previous shape and a cross-section anchored to the old region all
+  // belong to the selection that is being thrown away, and leaving any of them
+  // behind means the next drag starts from someone else's corner.
+  clearSelection: () =>
+    set({
+      selection: null,
+      selectionQuad: null,
+      drawAnchor: null,
+      drawMode: false,
+      sectionPoints: [],
+      showSection: false,
+    }),
   setDrawMode: (drawMode) => set({ drawMode, drawAnchor: null }),
   setDrawShape: (drawShape) => set({ drawShape, drawAnchor: null }),
   setSelectionQuad: (selectionQuad) => set({ selectionQuad }),

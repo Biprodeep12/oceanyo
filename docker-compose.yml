@@ -21,14 +21,25 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      # The single swap surface. Point it at catalog.hycom.yaml for real
-      # model output, catalog.glorys.yaml for a credentialed GLORYS12 subset.
+      # The DEFAULT catalog. Point it at catalog.hycom.yaml for real model
+      # output, catalog.glorys.yaml for a credentialed GLORYS12 subset -- or
+      # pick one from the app's Dataset panel, which writes the choice to
+      # /app/.runtime and restarts the API to apply it. `restart:
+      # unless-stopped` below IS that mechanism: the API exits with code 3 and
+      # compose starts it again. A runtime choice survives a restart, not a
+      # rebuild -- a new container starts from this value again.
       OCEANUPS_CATALOG: /app/config/catalog.synthetic.yaml
       OCEANUPS_DATA_ROOT: /app/data
       OCEANUPS_CACHE_DIR: /app/data/cache
       # xpublish is the least mature dependency in the stack. It is mounted in
       # a try/except and the API boots either way; set false to skip it.
       OCEANUPS_ENABLE_XPUBLISH: "true"
+      # Declares that the `restart: unless-stopped` below exists, which is
+      # what lets the Dataset picker offer to switch catalogs. Being inside
+      # a container is NOT evidence of it: `docker run` with no restart
+      # policy is a container too, and there the API would exit and stay
+      # exited.
+      OCEANUPS_SUPERVISED: "1"
     volumes:
       - ./data:/app/data:ro
       - ./config:/app/config:ro

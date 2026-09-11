@@ -37,6 +37,8 @@
 # ---------------------------------------------------------------------------
 
 id: bob-hycom-io
+label: "Real: HYCOM monthly (Indian Ocean)"
+fetch: "npm run fetch:hycom -- --indian-ocean && npm run fetch:real"
 source: "HYCOM GOFS 3.1 GLBy0.08 monthly, Indian Ocean (US Naval Research Laboratory, public domain)"
 synthetic: false
 

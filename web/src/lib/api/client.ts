@@ -6,6 +6,8 @@
 import type {
   BathymetryResponse,
   BBox,
+  CatalogsResponse,
+  CatalogSwitchResponse,
   CurrentsMeta,
   GriddedField,
   HealthResponse,
@@ -84,6 +86,26 @@ export const api = {
 
   platforms: (signal?: AbortSignal) =>
     getJSON<ParserCapabilities[]>("/api/platforms", signal),
+
+  /** Every catalog on disk, which is live, and whether a switch is possible. */
+  catalogs: (signal?: AbortSignal) =>
+    getJSON<CatalogsResponse>("/api/catalogs", signal),
+
+  /**
+   * Switch the live dataset. The API answers, then restarts -- so the caller
+   * must poll /api/health for the new catalogId rather than assume the next
+   * request will land. See services/restart.py for why a restart.
+   */
+  selectCatalog: async (id: string): Promise<CatalogSwitchResponse> => {
+    const res = await fetch("/api/catalog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body?.detail ?? `${res.status} switching catalog`);
+    return body as CatalogSwitchResponse;
+  },
 
   observations: (
     opts: { bbox?: BBox; platform?: string; limit?: number },
@@ -403,6 +425,39 @@ export const api = {
       if (qs) url += `&${qs}`;
     }
     return url;
+  },
+
+  /**
+   * One depth level as a colour-mapped PNG of exactly this bbox.
+   *
+   * Same renderer as the map tiles, so an image fetched here and the tiles on
+   * the map agree pixel for pixel in colour -- which is the whole point: it is
+   * used as the lid of the 3D block during the dive.
+   */
+  slicePngUrl: (opts: {
+    variable: string;
+    bbox: BBox;
+    depth: number;
+    time?: string;
+    res?: number;
+    display?: { range?: [number, number]; log?: boolean; colormap?: string };
+  }) => {
+    const p = new URLSearchParams({
+      var: opts.variable,
+      bbox: bboxParam(opts.bbox),
+      depth: String(opts.depth),
+      fmt: "png",
+    });
+    if (opts.time) p.set("time", opts.time);
+    if (opts.res) p.set("res", String(opts.res));
+    const d = opts.display;
+    if (d?.range) {
+      p.set("vmin", String(d.range[0]));
+      p.set("vmax", String(d.range[1]));
+    }
+    if (d?.log !== undefined) p.set("log", String(d.log));
+    if (d?.colormap) p.set("cmap", d.colormap);
+    return `/api/slice?${p}`;
   },
 
   volumeUrl: (opts: {

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import ProvenancePanel from "@/components/panels/ProvenancePanel";
 import { Popover, SectionLabel, Slider } from "@/components/ui";
 import {
+  IconClose,
   IconDownload,
   IconDraw,
   IconInfo,
@@ -102,6 +103,8 @@ export default function IconRail() {
   const drawShape = useSessionStore((s) => s.drawShape);
   const setDrawShape = useSessionStore((s) => s.setDrawShape);
   const setDrawMode = useSessionStore((s) => s.setDrawMode);
+  const selection = useSessionStore((s) => s.selection);
+  const clearSelection = useSessionStore((s) => s.clearSelection);
   const layersOpen = useSessionStore((s) => s.layersOpen);
   const setLayersOpen = useSessionStore((s) => s.setLayersOpen);
   const variable = useSessionStore((s) => s.variable);
@@ -166,7 +169,7 @@ export default function IconRail() {
   useEffect(() => setCaps(probeGpu()), []);
 
   return (
-    // z-50: ABOVE the profile panel, which shares this corner.
+    // z-70: ABOVE the profile panel, which shares this corner and sits at 60.
     //
     // The rail and its popovers both sit at the top right, and the profile
     // panel opens into the same space. At equal z the later element in the DOM
@@ -174,7 +177,12 @@ export default function IconRail() {
     // unclickable -- the panel was covering the popover they open. A transient
     // control has to sit above the content panel it acts on, not beside it and
     // hope.
-    <div className="pointer-events-none absolute right-3 top-3 bottom-3 z-50 flex items-start justify-end gap-2">
+    //
+    // This was z-50, which stopped being above anything when .ze-side-panel
+    // was given z-60. Same symptom, no code change in the rail: with a profile
+    // open, every popover was behind the panel again. The number now names the
+    // one it has to beat, and globals.css says so beside it.
+    <div className="pointer-events-none absolute right-3 top-3 bottom-3 z-[70] flex items-start justify-end gap-2">
       {open && (
         <div className="pointer-events-auto mt-0">
           {open === "regions" && (
@@ -227,6 +235,23 @@ export default function IconRail() {
                     <span className="truncate">{p.label}</span>
                   </button>
                 ))}
+                {/* Offered here as well as beside Dive, because this is the
+                    menu someone opens when the region is wrong. */}
+                {/* Map only. Inside the block the selection IS the scene:
+                    clearing it there leaves a 3D view of nothing. */}
+                {selection && phase === "map" && (
+                  <button
+                    className="ze-row justify-start"
+                    onClick={() => {
+                      clearSelection();
+                      setOpen(null);
+                    }}
+                    title="Remove the selected region (Esc)"
+                  >
+                    <IconClose />
+                    <span className="truncate">Clear region</span>
+                  </button>
+                )}
               </div>
             </Popover>
           )}

@@ -5,13 +5,25 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
-from ...core.config import REPO_ROOT
+from ...core import catalog as catalog_src
+from ...core.config import REPO_ROOT, settings
 from ...core.conventions import CANONICAL
-from ...core.models import GriddedField, HealthResponse, ParserCapabilities, VariableSummary
+from ...core.models import (
+    CatalogEntry,
+    CatalogSwitchResponse,
+    CatalogsResponse,
+    GriddedField,
+    HealthResponse,
+    ParserCapabilities,
+    RestartCapability,
+    VariableSummary,
+)
 from ..datastore import DataStore, get_store
 from ..obs.registry import REGISTRY
 from ..services import raster
+from ..services import restart
 from ..services import nlq
 from ..services.anomaly import available_variables
 
@@ -140,3 +152,93 @@ def platforms() -> list[ParserCapabilities]:
     new platform appear here, with no schema, endpoint or frontend change.
     """
     return REGISTRY.capabilities()
+
+
+# ---------------------------------------------------------------------------
+# Choosing the dataset from the UI
+# ---------------------------------------------------------------------------
+
+
+class CatalogRequest(BaseModel):
+    id: str
+
+
+@router.get("/catalogs", response_model=CatalogsResponse)
+def catalogs(store: DataStore = Depends(get_store)) -> CatalogsResponse:
+    """Every catalog on disk, which one is live, and whether a switch is possible.
+
+    Availability is checked against the filesystem on each call rather than
+    cached: `npm run fetch:hycom` finishes while the API is up, and a picker
+    that still calls the real catalog unavailable afterwards teaches people to
+    distrust it.
+    """
+    found = catalog_src.discover()
+    active = store.catalog.id
+    return CatalogsResponse(
+        active=active,
+        activeSource="selected" if store.catalog.path != settings.catalog else "default",
+        restart=RestartCapability(**restart.capability()),
+        catalogs=[
+            CatalogEntry(
+                id=c.id,
+                label=c.label,
+                source=c.source,
+                synthetic=c.synthetic,
+                active=c.id == active,
+                available=c.available,
+                missing=c.missing,
+                hint=c.hint,
+            )
+            for c in found
+        ],
+    )
+
+
+@router.post("/catalog", response_model=CatalogSwitchResponse)
+def select_catalog(
+    req: CatalogRequest, store: DataStore = Depends(get_store)
+) -> CatalogSwitchResponse:
+    """Switch the live dataset, by id, and restart to apply it.
+
+    By ID, never by path. The same endpoint taking a path would be an arbitrary
+    file-open primitive reachable from the browser; ids are matched against the
+    catalogs actually present in config/, so the blast radius of a bad request
+    is a 404.
+
+    The response is sent BEFORE the process goes down -- see services/restart.py
+    -- so the client knows which catalogId to poll /api/health for.
+    """
+    info = catalog_src.find(req.id)
+    if info is None:
+        raise HTTPException(status_code=404, detail=f"no catalog with id {req.id!r}")
+    if not info.available:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{info.id} is configured but its data is not on disk: "
+                + ", ".join(info.missing)
+                + (f". Run: {info.hint}" if info.hint else "")
+            ),
+        )
+    if info.id == store.catalog.id:
+        return CatalogSwitchResponse(
+            ok=True, id=info.id, restarting=False,
+            message=f"{info.id} is already loaded",
+        )
+
+    cap = restart.capability()
+    if not cap["supported"]:
+        raise HTTPException(status_code=409, detail=cap["reason"])
+
+    catalog_src.write_selection(info)
+    try:
+        mode = restart.request_restart()
+    except RuntimeError as exc:  # lost the race with a config change
+        catalog_src.clear_selection()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return CatalogSwitchResponse(
+        ok=True, id=info.id, restarting=True, mode=mode,
+        etaSeconds=int(cap["etaSeconds"]),
+        message=f"loading {info.label}; the API is restarting",
+    )

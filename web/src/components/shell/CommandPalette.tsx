@@ -230,6 +230,7 @@ export default function CommandPalette({
 
   return (
     <div
+      data-transient=""
       className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 px-3 pt-[12vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
