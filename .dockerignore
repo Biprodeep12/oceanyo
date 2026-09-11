@@ -1,0 +1,24 @@
+# The build context is the repo root (docker-compose.yml sets `context: .` for
+# both services). Without this file every build ships ~800 MB of NetCDF and two
+# node_modules trees to the daemon before the first instruction runs.
+
+.git
+.gitattributes
+
+# Datasets are BIND-MOUNTED at runtime, never copied into an image. See the
+# comment at the top of docker-compose.yml.
+data/
+
+# Reinstalled inside the image; a host tree here is the wrong platform anyway.
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+
+.env
+*.md
+!README.md
