@@ -688,6 +688,15 @@ body {
   color: var(--ze-text-faint);
 }
 
+/* What the assistant CHANGED, said rather than called. Monospace would make a
+   sentence look like a line of code, which is the thing these rows exist to
+   stop being; the literal call is in the tooltip. */
+.ze-tool-chip-said {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--ze-text-dim);
+}
+
 .ze-warn-box {
   margin-top: 7px;
   border-radius: 10px;

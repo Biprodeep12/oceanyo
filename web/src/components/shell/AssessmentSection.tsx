@@ -10,10 +10,22 @@
 // Every row is phrased as the question the layer answers. A menu that says
 // "Confidence" leaves the reader to guess what is being measured; one that
 // says "how much should this region's model field be trusted" does not.
+//
+// The whole section is absent for a model field the instruments do not
+// measure -- see assessableVariables(). Every layer here is the model compared
+// against something in the water, so for eastward velocity there is nothing to
+// compare it to, and six questions that can only answer "unobserved" are worse
+// than no questions at all.
+
+import { useEffect, useMemo } from "react";
 
 import { MenuRow, SectionLabel } from "@/components/ui";
 import { IconGrid } from "@/components/ui/icons";
-import { COVERAGE_METRICS, coverageStyle } from "@/lib/geo/coverageStyle";
+import {
+  assessableVariables,
+  COVERAGE_METRICS,
+  coverageStyle,
+} from "@/lib/geo/coverageStyle";
 import type { CoverageMetric } from "@/lib/api/types";
 import { useSessionStore } from "@/state/useSessionStore";
 
@@ -22,9 +34,29 @@ export default function AssessmentSection() {
   const coverage = useSessionStore((s) => s.coverage);
   const loading = useSessionStore((s) => s.loadingCoverage);
   const setMetric = useSessionStore((s) => s.setCoverageMetric);
+  const variable = useSessionStore((s) => s.variable);
+  const parsers = useSessionStore((s) => s.parsers);
+  const platforms = useSessionStore((s) => s.health?.platforms);
+
+  const assessable = useMemo(
+    () => assessableVariables(parsers, platforms),
+    [parsers, platforms],
+  );
+  // Until /api/platforms answers there is nothing to go on, and hiding the
+  // section on an empty list would make it flicker in a moment after boot.
+  const supported = assessable.size === 0 || assessable.has(variable);
+
+  // Switching to a field with no observations behind it takes the layer off
+  // the map with the rows that control it. Leaving it painted would strand a
+  // grid on screen with nothing anywhere to turn it off.
+  useEffect(() => {
+    if (!supported && metric) setMetric(null);
+  }, [supported, metric, setMetric]);
 
   const active = metric ? coverageStyle(metric, coverage) : null;
   const sum = coverage?.summary;
+
+  if (!supported) return null;
 
   return (
     <>
@@ -34,14 +66,14 @@ export default function AssessmentSection() {
         return (
           <MenuRow
             key={m}
-            type="radio"
-            name="assessment"
+            type="checkbox"
             label={spec.label}
             icon={<IconGrid />}
             checked={metric === m}
-            // Clicking the active row turns the layer off. Without that the
-            // only way back to a plain map is a seventh "None" row, which
-            // reads as a layer that is not one.
+            // Clicking the active row turns the layer off. Checkboxes fire
+            // onChange on every click (radios do not when re-clicking the
+            // active option), so the toggle works. The input is visually
+            // hidden in ze-row CSS, so the shape difference is invisible.
             onChange={() => setMetric(metric === m ? null : m)}
             title={spec.question}
           />

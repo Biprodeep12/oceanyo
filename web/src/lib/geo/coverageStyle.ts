@@ -6,7 +6,11 @@
 // AND the legend that explains it, in one place -- a legend that is written
 // separately from the ramp drifts from it the first time a threshold moves.
 
-import type { CoverageMetric, CoverageResponse } from "@/lib/api/types";
+import type {
+  CoverageMetric,
+  CoverageResponse,
+  ParserCapabilities,
+} from "@/lib/api/types";
 
 export interface MetricSpec {
   key: CoverageMetric;
@@ -237,3 +241,35 @@ export const COVERAGE_METRICS: CoverageMetric[] = [
   "confidence",
   "ageDays",
 ];
+
+/**
+ * Which model fields the assessment layers can say anything about.
+ *
+ * Every one of them is the model compared against what was measured in the
+ * water, so a variable nothing in this catalog's observing network reports
+ * produces a grid of nulls: no bias, no RMSE, no confidence, and -- because a
+ * profile that lacks the variable is dropped before it is binned -- no counts
+ * and a blind spot in every cell. That is not a finding about the ocean, it is
+ * a finding about the question, and offering the layers anyway invites someone
+ * to read "unobserved everywhere" off a velocity field that no float has ever
+ * been asked to measure.
+ *
+ * Derived from the parsers the catalog actually loads rather than from a list
+ * here, so adding a BGC or an ADCP parser makes its variables assessable with
+ * no change to this file.
+ */
+export function assessableVariables(
+  parsers: ParserCapabilities[],
+  platforms: string[] | undefined,
+): Set<string> {
+  const active = new Set(platforms ?? []);
+  const out = new Set<string>();
+  for (const p of parsers) {
+    // /api/platforms lists every REGISTERED parser, not only the ones this
+    // catalog configured; a CTD parser with no CTD files in the catalog must
+    // not make chlorophyll look assessable.
+    if (!active.has(p.platform)) continue;
+    for (const v of p.variables) out.add(v);
+  }
+  return out;
+}

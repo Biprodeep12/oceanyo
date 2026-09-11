@@ -41,6 +41,7 @@ export function MenuRow({
   title,
   disabled = false,
   detail,
+  reselectable = false,
   className = "",
 }: {
   label: string;
@@ -54,6 +55,16 @@ export function MenuRow({
   disabled?: boolean;
   /** A second line under the label. Implies the taller stacked row. */
   detail?: ReactNode;
+  /**
+   * Let a radio report a click on the row that is ALREADY selected.
+   *
+   * A radio group cannot be emptied by the browser, so clicking the active row
+   * fires no `change` and `onChange` never runs -- which is why "click it again
+   * to turn it off" silently did nothing. `click` does fire, so the reselect is
+   * caught there; a click that genuinely changes the selection is left to
+   * `change`, or both would run and cancel each other out.
+   */
+  reselectable?: boolean;
   className?: string;
 }) {
   return (
@@ -69,6 +80,7 @@ export function MenuRow({
         checked={checked}
         disabled={disabled}
         onChange={onChange}
+        onClick={reselectable && checked ? () => onChange() : undefined}
         aria-label={label}
       />
       <span className="flex w-full items-center gap-3">

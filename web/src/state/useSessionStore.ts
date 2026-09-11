@@ -24,6 +24,7 @@ import type {
   MatchupResult,
   ObservationFeature,
   ObservationProfile,
+  ParserCapabilities,
   RegionPreset,
   VariableSummary,
 } from "@/lib/api/types";
@@ -58,6 +59,16 @@ export interface SessionState {
   // --- catalog ---
   health: HealthResponse | null;
   variables: VariableSummary[];
+  /**
+   * Every registered observation parser and what it can supply.
+   *
+   * Kept because the model fields and the instruments do NOT carry the same
+   * variables: nothing in the water measures eastward velocity, so an
+   * assessment layer for it is a grid of nulls presented as a finding. Which
+   * variables the instruments actually report is a property of the parsers
+   * this catalog uses, so it is read from them rather than hardcoded.
+   */
+  parsers: ParserCapabilities[];
   presets: RegionPreset[];
   times: string[];
   /** Full extent this catalog can serve; drives the locator inset. */
@@ -177,6 +188,7 @@ export interface SessionState {
   // --- actions ---
   setHealth: (h: HealthResponse) => void;
   setVariables: (v: VariableSummary[]) => void;
+  setParsers: (p: ParserCapabilities[]) => void;
   setPresets: (p: RegionPreset[]) => void;
   setTimes: (t: string[]) => void;
   setDomain: (b: BBox | null) => void;
@@ -236,6 +248,7 @@ export interface SessionState {
 export const useSessionStore = create<SessionState>((set) => ({
   health: null,
   variables: [],
+  parsers: [],
   presets: [],
   times: [],
   domain: null,
@@ -292,6 +305,7 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setHealth: (health) => set({ health }),
   setVariables: (variables) => set({ variables }),
+  setParsers: (parsers) => set({ parsers }),
   setPresets: (presets) => set({ presets }),
   setTimes: (times) => set({ times }),
   setDomain: (domain) => set({ domain }),

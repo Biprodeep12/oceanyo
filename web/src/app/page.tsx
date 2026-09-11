@@ -110,15 +110,20 @@ export default function Page() {
     const ac = new AbortController();
     (async () => {
       try {
-        const [health, variables, presets] = await Promise.all([
+        const [health, variables, presets, parsers] = await Promise.all([
           api.health(ac.signal),
           api.variables(ac.signal),
           api.presets(ac.signal).catch(() => []),
+          // What the instruments measure, which is not what the model carries.
+          // The assessment layers need both to know which of them mean
+          // anything for the field on screen.
+          api.platforms(ac.signal).catch(() => []),
         ]);
         const st = useSessionStore.getState();
         st.setHealth(health);
         st.setVariables(variables);
         st.setPresets(presets);
+        st.setParsers(parsers);
         const meta = await api.metadata(variables[0]?.variable ?? "temperature", ac.signal);
         st.setTimes(meta.time);
         // The full extent this catalog serves, taken from the axes themselves

@@ -10,7 +10,7 @@
 // to the one audience most able to check it, so the groups are named for what
 // they actually are: observations, and model fields.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import AssessmentSection from "@/components/shell/AssessmentSection";
 import DatasetSection from "@/components/shell/DatasetSection";
@@ -61,6 +61,24 @@ export default function LayersPanel() {
   );
   const inBlock = s.phase === "block";
   const depthMax = varMeta?.depthRange[1] ?? 2000;
+
+  // Which variables have observation coverage. Assessment metrics (bias, RMSE,
+  // confidence) are model-vs-observation comparisons, so they are meaningless
+  // for variables no parser measures -- velocity, for example.
+  const [obsVars, setObsVars] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import("@/lib/api/client").then(({ api }) =>
+      api.platforms().then((caps) => {
+        if (cancelled) return;
+        const vars = new Set<string>();
+        for (const c of caps) for (const v of c.variables) vars.add(v);
+        setObsVars(vars);
+      }),
+    ).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const assessmentAvailable = obsVars === null || obsVars.has(s.variable);
 
   // On a phone this is a dismissable sheet opened from the rail; on a desktop
   // it is a permanent panel with its own collapse chevron. Same content, and
@@ -169,8 +187,10 @@ export default function LayersPanel() {
 
           {/* Assessment layers describe the region as a whole, so they belong
               to map mode; inside a block the same questions are answered by
-              the matchup panel for one instrument at a time. */}
-          {!inBlock && <AssessmentSection />}
+              the matchup panel for one instrument at a time. Hidden for
+              variables without observation coverage (e.g. velocity), since
+              the metrics are model-vs-float comparisons. */}
+          {!inBlock && assessmentAvailable && <AssessmentSection />}
 
           <SectionLabel>Depth</SectionLabel>
           <Slider
