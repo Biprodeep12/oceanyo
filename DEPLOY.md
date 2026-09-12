@@ -168,10 +168,31 @@ OCEANUPS_CATALOG=config/catalog.hycom.yaml npm run dev
 ```bash
 # api
 python -m uvicorn app.api.main:app --app-dir backend --host 0.0.0.0 --port 8000
+```
 
-# web
+`next.config.ts` sets `output: "standalone"`, so the web server is **not**
+`next start` — that prints `"next start" does not work with "output: standalone"
+configuration` and exits 1. Run the traced server, which is also what the Docker
+image does.
+
+`standalone/` carries `server.js` and `node_modules` but **not** `.next/static`
+or `public`; the server expects both beside it, so stage them after every build:
+
+```bash
 npm --prefix web run build
-cd web && npx next start -p 3000 -H 0.0.0.0
+cp -r web/.next/static web/.next/standalone/.next/static
+cp -r web/public       web/.next/standalone/public
+
+cd web/.next/standalone
+PORT=3000 HOSTNAME=0.0.0.0 NEXT_PUBLIC_API_ORIGIN=http://127.0.0.1:8000 \
+  node server.js
+```
+
+A fresh clone has no `public/maplibre/`, and skipping it 404s the map's worker
+at runtime rather than at build time:
+
+```bash
+npm --prefix web run sync:maplibre    # before build; postinstall also does it
 ```
 
 Set `OCEANUPS_SUPERVISED=1` under systemd, pm2 or `docker run --restart` so the
@@ -194,10 +215,14 @@ curl -fsS "http://127.0.0.1:3000/wms?service=WMS&version=1.3.0&request=GetCapabi
 ```
 
 Browser suites. Run them against a **production build**, never `next dev`, and
-one stack at a time:
+one stack at a time. Serve it the same way production does:
 
 ```bash
-npm --prefix web run build && (cd web && npx next start -p 3000)
+npm --prefix web run build
+cp -r web/.next/static web/.next/standalone/.next/static
+cp -r web/public       web/.next/standalone/public
+(cd web/.next/standalone && PORT=3000 HOSTNAME=127.0.0.1 node server.js) &
+
 npm run smoke                 # full demo path: 22 desktop + 5 mobile steps
 npm run smoke:level2          # Level 2 surfaces only, ~1 min
 npm run smoke:switch          # the dataset-picker restart path
@@ -205,3 +230,8 @@ npm run smoke:switch          # the dataset-picker restart path
 
 The suites ask for **127.0.0.1**, not localhost, and editing source mid-run
 remounts MapLibre and fails every step after it.
+
+> Known: `smoke:level2` throws `Cannot read properties of undefined (reading
+> 'bbox')` at its glider step on any catalog carrying a `mozambique_channel`
+> preset — the harness's `store(page, fn)` helper drops the third argument it
+> is passed there. Every check before it still reports. Unrelated to deployment.
