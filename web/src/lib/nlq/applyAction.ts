@@ -58,7 +58,9 @@ export function describeAction(a: ViewAction, presets: RegionPreset[] = []): str
     case "set_variable":
       return `Switched to ${shortLabel(String(args.variable ?? "")).toLowerCase()}`;
     case "set_depth":
-      return `Went to ${args.depth} m`;
+      // Every other arm tolerates a missing argument; this one said
+      // "Went to undefined m".
+      return args.depth === undefined ? "Moved the depth" : `Went to ${args.depth} m`;
     case "set_time":
       return `Jumped to ${String(args.time ?? "").slice(0, 10)}`;
     case "set_layer": {

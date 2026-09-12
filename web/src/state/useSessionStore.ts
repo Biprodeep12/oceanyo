@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 
+import { assessableVariables } from "@/lib/geo/coverageStyle";
 import { applyTheme, type Theme } from "@/lib/theme";
 import type {
   BBox,
@@ -319,7 +320,25 @@ export const useSessionStore = create<SessionState>((set) => ({
     applyTheme(theme);
     set({ theme });
   },
-  setVariable: (variable) => set({ variable }),
+  // Changing the field drops an assessment layer the new field cannot carry,
+  // in the SAME update rather than from an effect afterwards.
+  //
+  // Not cosmetic: the map's coverage fetch is keyed on [coverageMetric,
+  // variable], and MapView's effects flush before the layers panel's. Clearing
+  // the layer a beat later therefore let one `/api/coverage?var=u` go out and
+  // be aborted a millisecond after -- but the server had already entered
+  // assess(), which loads up to 3000 profiles from disk to compare a velocity
+  // field against floats that never measured one. The client abort does not
+  // call that work off. Making the two changes atomic means the pair is never
+  // observed, so the request is never made.
+  setVariable: (variable) =>
+    set((st) => {
+      const ok = assessableVariables(st.parsers, st.health?.platforms);
+      // ok.size === 0 means the parser list has not arrived yet; see
+      // AssessmentSection, which re-checks once it does.
+      const strand = st.coverageMetric !== null && ok.size > 0 && !ok.has(variable);
+      return strand ? { variable, coverageMetric: null } : { variable };
+    }),
   setDepth: (depth) => set({ depth }),
   setTimeIndex: (timeIndex) => set({ timeIndex }),
   // Setting a plain rectangle clears any quad. Otherwise the block would go

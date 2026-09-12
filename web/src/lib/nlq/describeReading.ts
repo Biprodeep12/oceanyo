@@ -61,6 +61,13 @@ const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const nums = (v: unknown): number[] =>
   arr(v).filter((x): x is number => typeof x === "number" && Number.isFinite(x));
 
+// Math.min(...xs) throws RangeError once the array is long enough to overflow
+// the argument stack, somewhere around 100k. A per-timestep array is nowhere
+// near that today and a daily century-long catalogue would not be, but a
+// reduce costs the same and cannot be the thing that breaks.
+const least = (xs: number[]): number => xs.reduce((a, b) => (b < a ? b : a), xs[0]);
+const most = (xs: number[]): number => xs.reduce((a, b) => (b > a ? b : a), xs[0]);
+
 const plural = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
 
@@ -127,7 +134,7 @@ function timeseries(r: Rec, args: Rec): ReadingSummary {
   if (lo.length && hi.length) {
     facts.push({
       label: "Any single cell",
-      value: `${Math.min(...lo)} to ${Math.max(...hi)} ${units}`.trim(),
+      value: `${least(lo)} to ${most(hi)} ${units}`.trim(),
     });
   }
   const box = bboxText(r.bbox);
@@ -322,7 +329,13 @@ function catalog(r: Rec): ReadingSummary {
 /** Anything with no bespoke formatter: its scalars, labelled. */
 function generic(tool: string, r: unknown): ReadingSummary {
   if (!isRec(r)) {
-    return { headline: `${tool} returned ${typeof r}`, facts: [], note: String(r) };
+    // Clamped: no tool returns a bare array today, but one that returned a
+    // long one would otherwise put the whole thing in the DOM as a note.
+    return {
+      headline: `${tool} returned ${typeof r}`,
+      facts: [],
+      note: String(r).slice(0, 200),
+    };
   }
   const facts: Fact[] = [];
   for (const [k, v] of Object.entries(r)) {

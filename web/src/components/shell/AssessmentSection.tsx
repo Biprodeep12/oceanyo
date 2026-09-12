@@ -29,6 +29,18 @@ import {
 import type { CoverageMetric } from "@/lib/api/types";
 import { useSessionStore } from "@/state/useSessionStore";
 
+// The row labels and the questions behind them, built once.
+//
+// coverageStyle() derives its ramp from the data in view, so calling it per row
+// per render rebuilt six MapLibre paint expressions to read two strings that
+// cannot change -- with no data passed, every range falls back to its floor and
+// the spec is a constant. The legend below still calls it with the real grid.
+const ROWS: { metric: CoverageMetric; label: string; question: string }[] =
+  COVERAGE_METRICS.map((m) => {
+    const { label, question } = coverageStyle(m, null).spec;
+    return { metric: m, label, question };
+  });
+
 export default function AssessmentSection() {
   const metric = useSessionStore((s) => s.coverageMetric);
   const coverage = useSessionStore((s) => s.coverage);
@@ -46,9 +58,14 @@ export default function AssessmentSection() {
   // section on an empty list would make it flicker in a moment after boot.
   const supported = assessable.size === 0 || assessable.has(variable);
 
-  // Switching to a field with no observations behind it takes the layer off
-  // the map with the rows that control it. Leaving it painted would strand a
-  // grid on screen with nothing anywhere to turn it off.
+  // The safety net, not the mechanism: setVariable already drops an
+  // incompatible layer as the variable changes, which is what keeps the map
+  // from fetching a coverage grid for a field no float measures.
+  //
+  // This catches the case the store cannot see -- a shared link restoring
+  // `variable=u&metric=bias` runs before /api/platforms has answered, so at
+  // that moment nothing knows the pair is impossible. Without this the grid
+  // would stay painted with its own controls hidden, and no way to turn it off.
   useEffect(() => {
     if (!supported && metric) setMetric(null);
   }, [supported, metric, setMetric]);
@@ -61,24 +78,30 @@ export default function AssessmentSection() {
   return (
     <>
       <SectionLabel>Assessment</SectionLabel>
-      {COVERAGE_METRICS.map((m: CoverageMetric) => {
-        const spec = coverageStyle(m, null).spec;
-        return (
-          <MenuRow
-            key={m}
-            type="checkbox"
-            label={spec.label}
-            icon={<IconGrid />}
-            checked={metric === m}
-            // Clicking the active row turns the layer off. Checkboxes fire
-            // onChange on every click (radios do not when re-clicking the
-            // active option), so the toggle works. The input is visually
-            // hidden in ze-row CSS, so the shape difference is invisible.
-            onChange={() => setMetric(metric === m ? null : m)}
-            title={spec.question}
-          />
-        );
-      })}
+      {ROWS.map(({ metric: m, label, question }) => (
+        <MenuRow
+          key={m}
+          type="radio"
+          name="assessment"
+          label={label}
+          icon={<IconGrid />}
+          checked={metric === m}
+          // Clicking the active row turns the layer off. Without that the
+          // only way back to a plain map is a seventh "None" row, which
+          // reads as a layer that is not one.
+          //
+          // A radio group fires no change event when its selected member is
+          // clicked again, which is why this silently did nothing; the fix
+          // is `reselectable` on MenuRow, which catches that click. Turning
+          // these into checkboxes would also work and was tried, but it
+          // gives away the one thing the group is shaped to say -- six
+          // independent-looking ticks, of which ticking a second silently
+          // unticks the first.
+          reselectable
+          onChange={() => setMetric(metric === m ? null : m)}
+          title={`${question}${metric === m ? " — click again to turn it off" : ""}`}
+        />
+      ))}
 
       {active && (
         <div className="px-4 pb-2 pt-1">

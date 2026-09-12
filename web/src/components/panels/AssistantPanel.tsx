@@ -97,7 +97,13 @@ function doingLabel(name: string, args: Record<string, unknown> = {}): string {
 function Reading({ tool, args, result }: { tool: string; args: Record<string, unknown>; result: unknown }) {
   const [raw, setRaw] = useState(false);
   const summary = useMemo(() => describeReading(tool, args, result), [tool, args, result]);
-  const text = useMemo(() => JSON.stringify(result, null, 1), [result]);
+  // Serialised only once it is asked for. read_timeseries carries four arrays
+  // the length of the record, and stringifying every reading of every turn to
+  // fill a block that is closed by default is work for nothing.
+  const text = useMemo(
+    () => (raw ? JSON.stringify(result, null, 1) : ""),
+    [raw, result],
+  );
 
   return (
     <div className="ze-reading">
